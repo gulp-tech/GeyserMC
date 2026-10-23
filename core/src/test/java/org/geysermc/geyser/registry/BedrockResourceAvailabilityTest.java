@@ -60,7 +60,9 @@ public class BedrockResourceAvailabilityTest {
 
     @Test
     public void testResourcesExistForEverySupportedProtocol() {
-        for (int protocol : org.geysermc.geyser.network.bedrock.GameProtocol.SUPPORTED_BEDROCK_PROTOCOLS) {
+        it.unimi.dsi.fastutil.ints.IntList supported = org.geysermc.geyser.network.bedrock.GameProtocol.SUPPORTED_BEDROCK_PROTOCOLS;
+        for (int i = 0; i < supported.size(); i++) {
+            int protocol = supported.getInt(i);
             String[] resources = RESOURCES.get(protocol);
             Assertions.assertNotNull(resources, "No data file entry for supported protocol " + protocol);
 

@@ -25,6 +25,7 @@
 
 package org.geysermc.geyser.network.bedrock;
 
+import it.unimi.dsi.fastutil.ints.IntList;
 import org.cloudburstmc.protocol.bedrock.codec.BedrockCodec;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -40,17 +41,19 @@ public class GameProtocolTest {
 
     @Test
     public void testSupportedProtocolsAreAscending() {
-        List<Integer> protocols = GameProtocol.SUPPORTED_BEDROCK_PROTOCOLS;
+        IntList protocols = GameProtocol.SUPPORTED_BEDROCK_PROTOCOLS;
         Assertions.assertFalse(protocols.isEmpty(), "No Bedrock protocols are registered!");
         for (int i = 1; i < protocols.size(); i++) {
-            Assertions.assertTrue(protocols.get(i - 1) < protocols.get(i),
+            Assertions.assertTrue(protocols.getInt(i - 1) < protocols.getInt(i),
                 "Bedrock protocols are not registered in ascending order: %s".formatted(protocols));
         }
     }
 
     @Test
     public void testEveryProtocolHasACodec() {
-        for (int protocol : GameProtocol.SUPPORTED_BEDROCK_PROTOCOLS) {
+        IntList supported = GameProtocol.SUPPORTED_BEDROCK_PROTOCOLS;
+        for (int i = 0; i < supported.size(); i++) {
+            int protocol = supported.getInt(i);
             BedrockCodec codec = GameProtocol.getBedrockCodec(protocol);
             Assertions.assertNotNull(codec, "No codec registered for protocol " + protocol);
             Assertions.assertEquals(protocol, codec.getProtocolVersion());
@@ -87,7 +90,9 @@ public class GameProtocolTest {
         // 828 is not a supported protocol (1.21.102 - 1.21.110 gap); 827 is the nearest supported one
         Assertions.assertEquals(827, GameProtocol.getClosestSupportedProtocol(828));
         // Exact matches always return the same protocol
-        for (int protocol : GameProtocol.SUPPORTED_BEDROCK_PROTOCOLS) {
+        IntList supported = GameProtocol.SUPPORTED_BEDROCK_PROTOCOLS;
+        for (int i = 0; i < supported.size(); i++) {
+            int protocol = supported.getInt(i);
             Assertions.assertEquals(protocol, GameProtocol.getClosestSupportedProtocol(protocol));
         }
     }
