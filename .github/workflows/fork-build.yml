@@ -49,7 +49,13 @@ jobs:
         run: |
           # The sandbox that watches this build cannot download Actions logs, so the important
           # part of the log is published as a commit comment (readable through the API).
-          tail -n 300 /tmp/build.log > /tmp/tail.txt || echo "no log" > /tmp/tail.txt
+          {
+            echo "=== errors ==="
+            grep -n -B2 -A8 "error:\|What went wrong\|Execution failed\|FAILED" /tmp/build.log | head -n 200 || true
+            echo
+            echo "=== tail ==="
+            tail -n 60 /tmp/build.log || echo "no log"
+          } > /tmp/tail.txt
           jq -Rs '{body: ("```\n" + . + "\n```")}' /tmp/tail.txt > /tmp/body.json
           curl -sS -X POST \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
