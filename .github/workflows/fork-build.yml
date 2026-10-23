@@ -37,9 +37,22 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build
-        run: ./gradlew build --stacktrace
+        run: ./gradlew build --stacktrace --console=plain 2>&1 | tee /tmp/build.log
         env:
           BUILD_NUMBER: ${{ github.run_number }}
+
+      - name: Report failure
+        if: failure()
+        run: |
+          # The sandbox that watches this build cannot download Actions logs, so the important
+          # part of the log is published as a commit comment (readable through the API).
+          tail -n 300 /tmp/build.log > /tmp/tail.txt || echo "no log" > /tmp/tail.txt
+          jq -Rs '{body: ("```\n" + . + "\n```")}' /tmp/tail.txt > /tmp/body.json
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
+            -d @/tmp/body.json > /dev/null
 
       - name: Upload build reports
         if: failure()
