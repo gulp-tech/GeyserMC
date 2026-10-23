@@ -67,7 +67,7 @@ public class Legacy121Converter extends ConversionHelper {
      * instead of being marked as Java-only.
      */
     public static GeyserMappingItem remapItem(Item item, GeyserMappingItem mapping) {
-        if (item == Items.IRON_CHAIN || item.javaIdentifier().endsWith("copper_chain")) {
+        if (item == Items.IRON_CHAIN || item.javaIdentifier().path().endsWith("copper_chain")) {
             return mapping.withBedrockIdentifier("minecraft:chain");
         }
         return mapping;
