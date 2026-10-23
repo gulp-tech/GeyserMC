@@ -130,7 +130,14 @@ public final class LegacyItemFallbacks {
      * {@code copper_nautilus_armor → copper_horse_armor}, but 1.21.100 has neither). Follow the
      * chain until we end up at an item that actually exists on the oldest supported version.
      */
-    private static Map<Item, Item> resolveChains(Map<Item, Item> map) {
+    /**
+     * Follows fallback chains so that every item ends up at a fallback that exists on the target
+     * version, e.g. {@code poplar_shelf -> pale_oak_shelf -> chiseled_bookshelf}.
+     *
+     * @param map the fallbacks to resolve, modified in place
+     * @return the same map, for convenience
+     */
+    public static Map<Item, Item> resolveChains(Map<Item, Item> map) {
         map.replaceAll((item, fallback) -> {
             Item resolved = fallback;
             int guard = 0;

@@ -104,7 +104,9 @@ public final class BedrockVersionConversions {
             mappings.putAll(GoldenDandelionConverter.convertItem());
         }
         mappings.putAll(additional);
-        return mappings;
+        // A fallback can itself be a Java-only item on this version (e.g. 26.50 maps concrete stairs
+        // to cinnabar stairs, which do not exist before 26.10), so resolve the whole chain.
+        return LegacyItemFallbacks.resolveChains(mappings);
     }
 
     /**
