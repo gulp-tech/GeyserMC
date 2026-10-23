@@ -49,8 +49,13 @@ public class Legacy121Converter extends ConversionHelper {
                 .putString("name", "minecraft:lightning_rod")
                 .putCompound("states", statesWithoutPoweredBit.build())
                 .build();
-        } else if (name.endsWith("_shelf") || name.endsWith("copper_golem_statue")) {
-            return withoutStates("unknown");
+        } else if (name.endsWith("_shelf")) {
+            // Shelves do not exist on 1.21.100 at all; a plain bookshelf has no block states on Bedrock,
+            // so it is always a valid target.
+            return withoutStates("minecraft:bookshelf");
+        } else if (name.endsWith("copper_golem_statue")) {
+            // Copper golem statues are a 1.21.110 block; fall back to a plain copper block.
+            return withoutStates("minecraft:copper_block");
         } else if (name.equals("minecraft:copper_torch")) {
             return withName(tag, "torch");
         } else if (name.endsWith("copper_bars")) {

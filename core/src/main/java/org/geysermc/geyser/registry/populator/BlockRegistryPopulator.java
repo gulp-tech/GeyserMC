@@ -125,6 +125,11 @@ public final class BlockRegistryPopulator {
     public static int MIN_CUSTOM_RUNTIME_ID = -1;
     public static int JAVA_BLOCKS_SIZE = -1;
 
+    /**
+     * How many unresolvable block states are listed in the error thrown while populating a palette.
+     */
+    private static final int MAX_REPORTED_MISSING_RUNTIME_IDS = 200;
+
     private static void nullifyBlocksNbt() {
         BLOCKS_NBT = null;
     }
@@ -280,6 +285,9 @@ public final class BlockRegistryPopulator {
             Map<String, BlockDefinition> structureBlockDefinitions = new Object2ObjectOpenHashMap<>();
 
             BlockMappings.BlockMappingsBuilder builder = BlockMappings.builder();
+            // Collect every block state that cannot be resolved instead of failing on the first one,
+            // so a single run reports the complete list of missing downgrade mappings.
+            List<String> missingRuntimeIds = new ArrayList<>();
             while (blocksIterator.hasNext()) {
                 javaRuntimeId++;
                 NbtMap entry = blocksIterator.next();
@@ -296,11 +304,14 @@ public final class BlockRegistryPopulator {
                 if (blockStateOverride == null) {
                     bedrockDefinition = vanillaBedrockDefinition;
                     if (bedrockDefinition == null) {
-                        throw new RuntimeException("""
-                            Unable to find %s Bedrock runtime ID for %s! Original block tag:
-                            %s
-                            Updated block tag:
-                            %s""".formatted(javaId, palette.key(), originalBedrockTag, bedrockTag));
+                        if (missingRuntimeIds.size() < MAX_REPORTED_MISSING_RUNTIME_IDS) {
+                            missingRuntimeIds.add("""
+                                %s
+                                  original: %s
+                                  converted: %s""".formatted(javaId, originalBedrockTag, bedrockTag));
+                        }
+                        // Keep populating so the remaining problems are reported in the same run
+                        bedrockDefinition = airDefinition != null ? airDefinition : bedrockRuntimeMap[0];
                     }
                 } else {
                     bedrockDefinition = customBlockStateDefinitions.get(blockStateOverride);
@@ -360,6 +371,11 @@ public final class BlockRegistryPopulator {
 
                 javaToVanillaBedrockBlocks[javaRuntimeId] = vanillaBedrockDefinition;
                 javaToBedrockBlocks[javaRuntimeId] = bedrockDefinition;
+            }
+
+            if (!missingRuntimeIds.isEmpty()) {
+                throw new RuntimeException("Unable to find a Bedrock runtime ID for " + missingRuntimeIds.size()
+                    + " Java block state(s) in palette " + palette.key() + ":\n" + String.join("\n", missingRuntimeIds));
             }
 
             builder.collisionIgnoredBlocks(collisionIgnoredBlocks);
