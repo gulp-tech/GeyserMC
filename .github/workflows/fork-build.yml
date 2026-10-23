@@ -51,10 +51,10 @@ jobs:
           # part of the log is published as a commit comment (readable through the API).
           {
             echo "=== errors ==="
-            grep -n -B2 -A8 "error:\|What went wrong\|Execution failed\|FAILED" /tmp/build.log | head -n 200 || true
+            grep -n -B2 -A8 "error:\|What went wrong\|Execution failed\|FAILED" /tmp/build.log | head -n 120 || true
             echo
-            echo "=== tail ==="
-            tail -n 60 /tmp/build.log || echo "no log"
+            echo "=== build log (warnings stripped) ==="
+            grep -v -e "warning:" -e "^[[:space:]]*\^" -e "^[[:space:]]*at " -e "^Note: Some input files" /tmp/build.log | tail -n 260 || echo "no log"
           } > /tmp/tail.txt
           jq -Rs '{body: ("```\n" + . + "\n```")}' /tmp/tail.txt > /tmp/body.json
           curl -sS -X POST \

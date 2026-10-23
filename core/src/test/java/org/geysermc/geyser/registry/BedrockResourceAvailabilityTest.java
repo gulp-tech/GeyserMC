@@ -55,6 +55,8 @@ public class BedrockResourceAvailabilityTest {
         RESOURCES.put(975, new String[]{"block_palette.26_20", "runtime_item_states.26_20", "item_components.26_20", "creative_items.26_10", "item_tags.26_20"});
         RESOURCES.put(1001, new String[]{"block_palette.26_30", "runtime_item_states.26_30", "item_components.26_30", "creative_items.26_30", "item_tags.26_30"});
         RESOURCES.put(2168, new String[]{"block_palette.26_40", "runtime_item_states.26_40", "item_components.26_40", "creative_items.26_40", "item_tags.26_30"});
+        // 26.45 (2169) has no palette of its own; registries fall back to the closest older version (26.40)
+        RESOURCES.put(2169, new String[]{"block_palette.26_40", "runtime_item_states.26_40", "item_components.26_40", "creative_items.26_40", "item_tags.26_30"});
         RESOURCES.put(2193, new String[]{"block_palette.26_50", "runtime_item_states.26_50", "item_components.26_50", "creative_items.26_50", "item_tags.26_30"});
     }
 
