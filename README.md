@@ -91,6 +91,9 @@ git submodule update --init --recursive
   blocks/items that are defined by plugins keep working, but on very old clients they are rendered
   with their fallback blocks.
 * Only the Java version this snapshot targets can join; Bedrock ↔ Bedrock is not supported.
+* The changes in this fork were validated statically (registry coverage scripts, population tables,
+  Java parser checks and the added tests). No JDK/Gradle was available in the environment where the
+  fork was prepared, so `./gradlew build` has not been run yet - run it once before shipping.
 
 ## License
 
