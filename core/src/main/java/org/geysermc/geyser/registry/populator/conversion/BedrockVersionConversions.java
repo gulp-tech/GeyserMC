@@ -26,11 +26,13 @@
 package org.geysermc.geyser.registry.populator.conversion;
 
 import org.cloudburstmc.nbt.NbtMap;
+import org.geysermc.geyser.item.Items;
 import org.geysermc.geyser.item.type.Item;
 import org.geysermc.geyser.registry.type.GeyserMappingItem;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Chains the individual per-version downgrade converters together, so that a block or item that
@@ -89,6 +91,11 @@ public final class BedrockVersionConversions {
      * @return the item fallbacks that are Java-only on the target version
      */
     public static Map<Item, Item> itemFallbacks(boolean include26_10, boolean include26_0, Map<Item, Item> additional) {
+        // The converters resolve their item mappings through Block#asItem(), which only works once the
+        // Java item registry has been populated. The item populator calls this method before it touches
+        // any item, so force the registry to initialise first.
+        Objects.requireNonNull(Items.AIR, "Java item registry");
+
         Map<Item, Item> mappings = new HashMap<>(WildernessBoundConverter.itemMappings());
         if (include26_10) {
             mappings.putAll(ChaosCubedConverter.convertItem());

@@ -157,6 +157,11 @@ public class ItemRegistryPopulator {
         }
     }
 
+    /**
+     * How many missing item definitions are listed in the error thrown while populating a palette.
+     */
+    private static final int MAX_REPORTED_MISSING_DEFINITIONS = 100;
+
     @FunctionalInterface
     interface Remapper {
         @NonNull
@@ -340,6 +345,9 @@ public class ItemRegistryPopulator {
             Int2ObjectMap<String> customIdMappings = new Int2ObjectOpenHashMap<>();
             Set<Identifier> registeredCustomItems = new ObjectOpenHashSet<>(); // This is used to check for duplicate item names
 
+            // Collect every item that cannot be resolved instead of failing on the first one, so a
+            // single run reports the complete list of missing downgrade mappings.
+            List<String> missingDefinitions = new ArrayList<>();
             for (Map.Entry<String, GeyserMappingItem> entry : items.entrySet()) {
                 Item javaItem = BuiltInJavaRegistries.ITEM.getOrThrow(MinecraftKey.key(entry.getKey()));
                 GeyserMappingItem mappingItem;
@@ -354,7 +362,11 @@ public class ItemRegistryPopulator {
                 String bedrockIdentifier = mappingItem.getBedrockIdentifier();
                 ItemDefinition definition = definitions.get(bedrockIdentifier);
                 if (definition == null) {
-                    throw new RuntimeException("Missing Bedrock ItemDefinition in version " + palette.version() + " for mapping: " + mappingItem);
+                    if (missingDefinitions.size() < MAX_REPORTED_MISSING_DEFINITIONS) {
+                        missingDefinitions.add("  " + javaItem.javaKey().asString() + " -> " + bedrockIdentifier
+                            + (replacementItem != null ? " (fallback of " + replacementItem.javaKey().asString() + ")" : ""));
+                    }
+                    continue;
                 }
 
                 BlockDefinition bedrockBlock = null;
@@ -795,6 +807,11 @@ public class ItemRegistryPopulator {
                     .nonVanillaCustomItemIds(nonVanillaCustomItemIds)
                     .customBlockItemDefinitions(customBlockItemDefinitions)
                     .build();
+
+            if (!missingDefinitions.isEmpty()) {
+                throw new RuntimeException("Missing Bedrock ItemDefinition(s) in version " + palette.version()
+                    + " for " + missingDefinitions.size() + " item(s):\n" + String.join("\n", missingDefinitions));
+            }
 
             Registries.ITEMS.register(palette.protocolVersion(), itemMappings);
 
