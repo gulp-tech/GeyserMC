@@ -1,0 +1,90 @@
+name: Fork Build
+
+# Builds downloadable Geyser plugin jars for this fork (Spigot/Paper, Velocity, BungeeCord,
+# Fabric, NeoForge, Standalone) and attaches them to the "fork-latest" release, so the jars can be
+# downloaded without a local JDK. Upstream's build.yml relies on GeyserMC organisation secrets and
+# therefore cannot run in a fork; this workflow only uses GITHUB_TOKEN.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'arena/**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build
+        run: ./gradlew build --stacktrace
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+
+      - name: Upload build reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-reports
+          path: |
+            build/reports/**
+            */build/reports/**
+            */*/build/reports/**
+          if-no-files-found: ignore
+
+      - name: Collect jars
+        run: |
+          mkdir -p jars
+          find bootstrap -path '*/build/libs/*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar' -exec cp {} jars/ \;
+          ls -l jars
+
+      - name: Upload jars as workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: geyser-fork-jars
+          path: jars/*.jar
+          if-no-files-found: error
+
+      - name: Publish fork release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: fork-latest
+          name: Geyser fork build (Bedrock 1.21.100 - 26.52)
+          body: |
+            Автоматическая сборка ветки `${{ github.ref_name }}` (коммит `${{ github.sha }}`).
+
+            Bedrock-клиенты: **1.21.100 - 26.52** (протоколы 827 - 2193).
+
+            Куда что класть:
+            * `Geyser-Spigot.jar` — Paper/Spigot/Purpur (самый частый вариант: `plugins/`)
+            * `Geyser-Velocity.jar` — Velocity (`plugins/`)
+            * `Geyser-BungeeCord.jar` — BungeeCord/Waterfall (`plugins/`)
+            * `Geyser-Fabric.jar` / `Geyser-NeoForge.jar` — моды (`mods/`)
+            * `Geyser-Standalone.jar` — standalone (`java -jar Geyser-Standalone.jar`)
+
+            Java 21+ рекомендуется на сервере.
+          files: jars/*.jar
+          fail_on_unmatched_files: false
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

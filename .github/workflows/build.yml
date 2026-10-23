@@ -26,6 +26,8 @@ jobs:
     steps:
       - name: Get Release Info
         id: release-info
+        # Only the upstream repository has the GeyserMC organisation app secrets
+        if: github.repository == 'GeyserMC/Geyser'
         uses: GeyserMC/actions/previous-release@master
         with:
           appID: ${{ secrets.RELEASE_APP_ID }}
@@ -39,8 +41,9 @@ jobs:
       - name: Build Geyser
         run: ./gradlew build
         env:
-          BUILD_NUMBER: ${{ steps.release-info.outputs.curentRelease }}
-          
+          # In forks the release-info step is skipped, so fall back to the workflow run number
+          BUILD_NUMBER: ${{ steps.release-info.outputs.curentRelease || github.run_number }}
+
       - name: Archive Artifacts
         uses: GeyserMC/actions/upload-multi-artifact@master
         if: success()
