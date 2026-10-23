@@ -77,7 +77,7 @@ jobs:
       - name: Collect jars
         run: |
           mkdir -p jars
-          find bootstrap -path '*/build/libs/*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar' -exec cp {} jars/ \;
+          find bootstrap -path '*/build/libs/Geyser-*.jar' -exec cp {} jars/ \;
           ls -l jars
 
       - name: Upload jars as workflow artifacts

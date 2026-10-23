@@ -63,6 +63,22 @@ Java Edition side: whatever Minecraft version this snapshot targets (26.3 / prot
   `BedrockResourceAvailabilityTest` asserts that every protocol Geyser advertises ships all the
   data files it needs, so a missing palette fails in CI instead of at runtime.
 
+## Download
+
+Prebuilt jars of this fork are published automatically by the `Fork Build` workflow:
+
+**https://github.com/gulp-tech/GeyserMC/releases/tag/fork-latest**
+
+| File | Where it goes |
+|------|---------------|
+| `Geyser-Spigot.jar` | Paper / Spigot / Purpur — `plugins/` |
+| `Geyser-Velocity.jar` | Velocity — `plugins/` |
+| `Geyser-BungeeCord.jar` | BungeeCord / Waterfall — `plugins/` |
+| `Geyser-Fabric.jar` | Fabric — `mods/` |
+| `Geyser-NeoForge.jar` | NeoForge — `mods/` |
+| `Geyser-ViaProxy.jar` | ViaProxy — `plugins/` |
+| `Geyser-Standalone.jar` | standalone — `java -jar Geyser-Standalone.jar` |
+
 ## Building
 
 The build is unchanged from upstream:
@@ -91,9 +107,8 @@ git submodule update --init --recursive
   blocks/items that are defined by plugins keep working, but on very old clients they are rendered
   with their fallback blocks.
 * Only the Java version this snapshot targets can join; Bedrock ↔ Bedrock is not supported.
-* The changes in this fork were validated statically (registry coverage scripts, population tables,
-  Java parser checks and the added tests). No JDK/Gradle was available in the environment where the
-  fork was prepared, so `./gradlew build` has not been run yet - run it once before shipping.
+* `./gradlew build` (including Geyser's own game tests, which populate the block/item registries for
+  every supported palette) passes on CI, which is what publishes the jars above.
 
 ## License
 
