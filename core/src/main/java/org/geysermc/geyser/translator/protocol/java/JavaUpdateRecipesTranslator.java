@@ -1,0 +1,266 @@
+/*
+ * Copyright (c) 2019-2022 GeyserMC. http://geysermc.org
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ *
+ * @author GeyserMC
+ * @link https://github.com/GeyserMC/Geyser
+ */
+
+package org.geysermc.geyser.translator.protocol.java;
+
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import net.kyori.adventure.key.Key;
+import org.cloudburstmc.protocol.bedrock.data.definitions.ItemDefinition;
+import org.cloudburstmc.protocol.bedrock.data.inventory.ItemData;
+import org.cloudburstmc.protocol.bedrock.data.inventory.crafting.PotionMixData;
+import org.cloudburstmc.protocol.bedrock.data.inventory.crafting.RecipeUnlockingRequirement;
+import org.cloudburstmc.protocol.bedrock.data.inventory.crafting.recipe.ShapelessRecipeData;
+import org.cloudburstmc.protocol.bedrock.data.inventory.crafting.recipe.SmithingTransformRecipeData;
+import org.cloudburstmc.protocol.bedrock.data.inventory.descriptor.DefaultDescriptor;
+import org.cloudburstmc.protocol.bedrock.data.inventory.descriptor.ItemDescriptorWithCount;
+import org.cloudburstmc.protocol.bedrock.packet.CraftingDataPacket;
+import org.cloudburstmc.protocol.bedrock.packet.TrimDataPacket;
+import org.geysermc.geyser.GeyserImpl;
+import org.geysermc.geyser.inventory.recipe.GeyserRecipe;
+import org.geysermc.geyser.inventory.recipe.GeyserShapedRecipe;
+import org.geysermc.geyser.inventory.recipe.GeyserShapelessRecipe;
+import org.geysermc.geyser.inventory.recipe.GeyserStonecutterData;
+import org.geysermc.geyser.item.Items;
+import org.geysermc.geyser.item.type.Item;
+import org.geysermc.geyser.network.bedrock.GameProtocol;
+import org.geysermc.geyser.registry.java.JavaRegistries;
+import org.geysermc.geyser.registry.type.ItemMapping;
+import org.geysermc.geyser.registry.type.ItemMappings;
+import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.session.cache.tags.GeyserHolderSet;
+import org.geysermc.geyser.translator.item.ItemTranslator;
+import org.geysermc.geyser.translator.protocol.PacketTranslator;
+import org.geysermc.geyser.translator.protocol.Translator;
+import org.geysermc.geyser.util.MinecraftKey;
+import org.geysermc.mcprotocollib.protocol.data.game.Holder;
+import org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack;
+import org.geysermc.mcprotocollib.protocol.data.game.item.component.HolderSet;
+import org.geysermc.mcprotocollib.protocol.data.game.recipe.display.slot.ItemStackSlotDisplay;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.ClientboundUpdateRecipesPacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.ClientboundUpdateRecipesPacket.SelectableRecipe;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+
+import static org.geysermc.geyser.inventory.recipe.RecipeUtil.CARTOGRAPHY_RECIPES;
+
+/**
+ * Used to send all valid recipes from Java to Bedrock.
+ * <p>
+ * Bedrock REQUIRES a CraftingDataPacket to be sent in order to craft anything.
+ */
+@Translator(packet = ClientboundUpdateRecipesPacket.class)
+public class JavaUpdateRecipesTranslator extends PacketTranslator<ClientboundUpdateRecipesPacket> {
+
+    private static final List<String> NETHERITE_UPGRADES = List.of(
+            "minecraft:netherite_sword",
+            "minecraft:netherite_shovel",
+            "minecraft:netherite_pickaxe",
+            "minecraft:netherite_axe",
+            "minecraft:netherite_hoe",
+            "minecraft:netherite_helmet",
+            "minecraft:netherite_chestplate",
+            "minecraft:netherite_leggings",
+            "minecraft:netherite_boots"
+    );
+
+    private static final Key SMITHING_BASE = MinecraftKey.key("smithing_base");
+    private static final Key SMITHING_TEMPLATE = MinecraftKey.key("smithing_template");
+    private static final Key SMITHING_ADDITION = MinecraftKey.key("smithing_addition");
+    private static final Key BREWING_INPUT = MinecraftKey.key("brewing_input");
+    private static final Key BREWING_REAGENT = MinecraftKey.key("brewing_reagent");
+
+    @Override
+    public void translate(GeyserSession session, ClientboundUpdateRecipesPacket packet) {
+        int netId = session.getLastRecipeNetId().get();
+        CraftingDataPacket craftingDataPacket = new CraftingDataPacket();
+        // See JavaFinishConfigurationTranslator - avoid re-sending base recipe data in quick succession
+        if (session.isCleanRecipesRequired()) {
+            craftingDataPacket.setCleanRecipes(true);
+            if (GameProtocol.is26_40orHigher(session.protocolVersion())) {
+                craftingDataPacket.getMultiData().addAll(CARTOGRAPHY_RECIPES);
+            } else {
+                craftingDataPacket.getCraftingData().addAll(CARTOGRAPHY_RECIPES);
+            }
+
+            for (GeyserRecipe recipe : session.getCraftingRecipes().values()) {
+                if (GameProtocol.is26_40orHigher(session.protocolVersion())) {
+                    if (recipe instanceof GeyserShapedRecipe shapedRecipe) {
+                        craftingDataPacket.getShapedData().addAll(shapedRecipe.asRecipeData(session));
+                    } else if (recipe instanceof GeyserShapelessRecipe shapelessRecipe) {
+                        craftingDataPacket.getShapelessData().addAll(shapelessRecipe.asRecipeData(session));
+                    }
+                } else {
+                    craftingDataPacket.getCraftingData().addAll(recipe.asRecipeData(session));
+                }
+            }
+            session.getTrimRecipes().addAllSmithingRecipes(session, craftingDataPacket);
+        }
+
+        // As we now populate recipes that can differ,
+        // we need to ensure the next crafting packet resets the client's known recipes
+        session.setCleanRecipesRequired(true);
+
+        boolean oldSmithingTable;
+        int[] smithingBase = packet.getItemSets().get(SMITHING_BASE);
+        int[] smithingTemplate = packet.getItemSets().get(SMITHING_TEMPLATE);
+        int[] smithingAddition = packet.getItemSets().get(SMITHING_ADDITION);
+        if (smithingBase == null || smithingTemplate == null || smithingAddition == null) {
+            // We're probably on a version before the smithing table got expanded functionality.
+            oldSmithingTable = true;
+
+            ItemMapping template = session.getItemMappings().getStoredItems().upgradeTemplate();
+
+            for (String identifier : NETHERITE_UPGRADES) {
+                SmithingTransformRecipeData recipe = SmithingTransformRecipeData.of(identifier + "_smithing",
+                    getDescriptorFromId(session, template.getBedrockIdentifier()),
+                    getDescriptorFromId(session, identifier.replace("netherite", "diamond")),
+                    getDescriptorFromId(session, "minecraft:netherite_ingot"),
+                    ItemData.builder().definition(Objects.requireNonNull(session.getItemMappings().getDefinition(identifier))).count(1).build(),
+                    "smithing_table",
+                    netId++);
+
+                if (GameProtocol.is26_40orHigher(session.protocolVersion())) {
+                    craftingDataPacket.getSmithingTransformData().add(recipe);
+                } else {
+                    craftingDataPacket.getCraftingData().add(recipe);
+                }
+            }
+        } else {
+            oldSmithingTable = false;
+            // BDS sends armor trim templates and materials before the CraftingDataPacket (not sure why - eclipse).
+            TrimDataPacket trimDataPacket = new TrimDataPacket();
+            // This won't work very well for custom trim patterns and materials
+            trimDataPacket.getPatterns().addAll(session.getTrimRecipes().bedrockTrimPatterns());
+            trimDataPacket.getMaterials().addAll(session.getTrimRecipes().bedrockTrimMaterials());
+            session.sendUpstreamPacket(trimDataPacket);
+        }
+        session.getGeyser().getLogger().debug("Using old smithing table workaround? " + oldSmithingTable);
+        session.setOldSmithingTable(oldSmithingTable);
+
+        addPotionMixes(session.getItemMappings(), packet.getItemSets(), craftingDataPacket.getPotionMixData());
+
+        Int2ObjectMap<List<SelectableRecipe>> rawStonecutterData = new Int2ObjectOpenHashMap<>();
+
+        List<SelectableRecipe> stonecutterRecipes = packet.getStonecutterRecipes();
+        for (SelectableRecipe recipe : stonecutterRecipes) {
+            // Hardcoding the heck out of this until we see different examples of how this works.
+            if (!(recipe.recipe() instanceof ItemStackSlotDisplay)) {
+                session.getGeyser().getLogger().warning("Ignoring stonecutter recipe for weird output: " + recipe);
+                continue;
+            }
+
+            List<Holder<Item>> ingredients = GeyserHolderSet.fromMCPL(JavaRegistries.ITEM, recipe.input().getValues()).resolveHolders(session.javaRegistries());
+            for (Holder<Item> ingredient : ingredients) {
+                rawStonecutterData.computeIfAbsent(ingredient.id(), $ -> new ArrayList<>()).add(recipe);
+            }
+        }
+
+        Int2ObjectMap<GeyserStonecutterData> stonecutterRecipeMap = new Int2ObjectOpenHashMap<>();
+        for (Int2ObjectMap.Entry<List<SelectableRecipe>> data : rawStonecutterData.int2ObjectEntrySet()) {
+            // Implementation note: data used to have to be sorted according to the item translation key.
+            // This is no longer necessary as of 1.21.2, and is instead presented in the order the server sends us.
+            // (Recipes are ordered differently between Paper and vanilla)
+            // See #5150.
+            int buttonId = 0;
+            for (SelectableRecipe recipe : data.getValue()) {
+                // As of 1.16.4, all stonecutter recipes have one ingredient option
+                HolderSet ingredient = recipe.input().getValues();
+                int javaInput = data.getIntKey();
+                ItemMapping mapping = session.getItemMappings().getMapping(javaInput);
+                if (mapping.getJavaItem() == Items.AIR) {
+                    // Modded ?
+                    continue;
+                }
+                ItemDescriptorWithCount descriptor = new ItemDescriptorWithCount(new DefaultDescriptor(mapping.getBedrockDefinition(), mapping.getBedrockData()), 1);
+                ItemStack javaOutput = ((ItemStackSlotDisplay) recipe.recipe()).itemStack();
+                ItemData output = ItemTranslator.translateToBedrock(session, javaOutput);
+                if (!output.isValid()) {
+                    // Probably modded items
+                    continue;
+                }
+                int recipeNetId = netId++;
+                UUID uuid = UUID.randomUUID();
+                // We need to register stonecutting recipes, so they show up on Bedrock
+                // (Implementation note: recipe ID creates the order which stonecutting recipes are shown in stonecutter)
+                ShapelessRecipeData stonecutterRecipe = ShapelessRecipeData.shapeless("stonecutter_" + javaInput + "_" + buttonId,
+                    Collections.singletonList(descriptor), Collections.singletonList(output), uuid, "stonecutter", 0, recipeNetId, RecipeUnlockingRequirement.INVALID);
+                if (GameProtocol.is26_40orHigher(session.protocolVersion())) {
+                    craftingDataPacket.getShapelessData().add(stonecutterRecipe);
+                } else {
+                    craftingDataPacket.getCraftingData().add(stonecutterRecipe);
+                }
+
+                // Save the recipe list for reference when crafting
+                // Add the net ID as the key and the button required + output for the value
+                stonecutterRecipeMap.put(recipeNetId, new GeyserStonecutterData(buttonId++, javaOutput));
+
+                // Currently, stone cutter recipes are not locked/unlocked on Bedrock; so no need to cache their identifiers.
+            }
+        }
+
+        session.sendUpstreamPacket(craftingDataPacket);
+        session.setStonecutterRecipes(stonecutterRecipeMap);
+        session.getLastRecipeNetId().set(netId);
+    }
+
+    private ItemDescriptorWithCount getDescriptorFromId(GeyserSession session, String bedrockId) {
+        ItemDefinition bedrockDefinition = session.getItemMappings().getDefinition(bedrockId);
+        if (bedrockDefinition != null) {
+            return ItemDescriptorWithCount.fromItem(ItemData.builder().definition(bedrockDefinition).count(1).build());
+        }
+        GeyserImpl.getInstance().getLogger().debug("Unable to find item with identifier " + bedrockId);
+        return ItemDescriptorWithCount.EMPTY;
+    }
+
+    private static void addPotionMixes(ItemMappings itemMappings, Map<Key, int[]> itemSets, List<PotionMixData> mixes) {
+        int[] brewingInputs = itemSets.get(BREWING_INPUT);
+        int[] brewingReagents = itemSets.get(BREWING_REAGENT);
+
+        if (brewingInputs == null || brewingReagents == null) {
+            return;
+        }
+
+        // Bedrock demands an output, but Java doesn't give us one
+        // It doesn't matter much what the output is, since the client doesn't display it anywhere: so a simple potion will do
+        ItemMapping brewingOutput = itemMappings.getMapping(Items.POTION);
+
+        for (int input : brewingInputs) {
+            for (int reagent : brewingReagents) {
+                ItemMapping inputMapping = itemMappings.getMapping(input);
+                ItemMapping reagentMapping = itemMappings.getMapping(reagent);
+                mixes.add(new PotionMixData(
+                    inputMapping.getBedrockDefinition().getRuntimeId(), inputMapping.getBedrockData(),
+                    reagentMapping.getBedrockDefinition().getRuntimeId(), reagentMapping.getBedrockData(),
+                    brewingOutput.getBedrockDefinition().getRuntimeId(), brewingOutput.getBedrockData()));
+            }
+        }
+    }
+}

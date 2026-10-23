@@ -1,0 +1,678 @@
+/*
+ * Copyright (c) 2019-2025 GeyserMC. http://geysermc.org
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ *
+ * @author GeyserMC
+ * @link https://github.com/GeyserMC/Geyser
+ */
+
+package org.geysermc.geyser.translator.text;
+
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.TranslatableComponent;
+import net.kyori.adventure.text.TranslationArgument;
+import net.kyori.adventure.text.flattener.ComponentFlattener;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.Style;
+import net.kyori.adventure.text.format.TextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.renderer.TranslatableComponentRenderer;
+import net.kyori.adventure.text.serializer.legacy.CharacterAndFormat;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.cloudburstmc.nbt.NbtList;
+import org.cloudburstmc.nbt.NbtMap;
+import org.cloudburstmc.protocol.bedrock.packet.TextPacket;
+import org.geysermc.adventure.text.serializer.nbt.HeterogeneousNbtList;
+import org.geysermc.geyser.GeyserImpl;
+import org.geysermc.geyser.registry.java.JavaRegistries;
+import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.text.ChatColor;
+import org.geysermc.geyser.text.ChatDecoration;
+import org.geysermc.geyser.text.GeyserLocale;
+import org.geysermc.geyser.text.MinecraftTranslationRegistry;
+import org.geysermc.mcprotocollib.protocol.data.DefaultComponentSerializer;
+import org.geysermc.mcprotocollib.protocol.data.game.Holder;
+import org.geysermc.mcprotocollib.protocol.data.game.chat.ChatType;
+import org.geysermc.mcprotocollib.protocol.data.game.chat.ChatTypeDecoration;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+public class MessageTranslator {
+    // These are used for handling the translations of the messages
+    // Custom instead of TranslatableComponentRenderer#usingTranslationSource so we don't need to worry about finding a Locale class
+    private static final TranslatableComponentRenderer<String> RENDERER = new MinecraftTranslationRegistry();
+
+    private static final LegacyComponentSerializer LEGACY_JAVA_SERIALIZER = LegacyComponentSerializer.legacySection();
+    private static final LegacyComponentSerializer BEDROCK_SERIALIZER;
+    private static final String BEDROCK_COLORS;
+    private static final String BEDROCK_DECORATIONS;
+
+    // Legacy formatting character
+    private static final String BASE = "§";
+
+    // Reset character
+    private static final String RESET = BASE + "r";
+    private static final Pattern LOCALIZATION_PATTERN = Pattern.compile("%(?:(\\d+)\\$)?s");
+
+    private static final String ERROR_MESSAGE = "§cReport to Geyser";
+
+    static {
+        // Customize the formatting characters of our legacy serializer for bedrock edition
+        List<CharacterAndFormat> formats = new ArrayList<>(CharacterAndFormat.defaults());
+        // The following two do not yet exist on Bedrock - https://bugs.mojang.com/browse/MCPE-41729
+        formats.remove(CharacterAndFormat.STRIKETHROUGH);
+        formats.remove(CharacterAndFormat.UNDERLINED);
+
+        formats.add(CharacterAndFormat.characterAndFormat('g', TextColor.color(221, 214, 5))); // Minecoin Gold
+        // Add the new characters implemented in 1.19.80
+        formats.add(CharacterAndFormat.characterAndFormat('h', TextColor.color(227, 212, 209))); // Quartz
+        formats.add(CharacterAndFormat.characterAndFormat('i', TextColor.color(206, 202, 202))); // Iron
+        formats.add(CharacterAndFormat.characterAndFormat('j', TextColor.color(68, 58, 59))); // Netherite
+        formats.add(CharacterAndFormat.characterAndFormat('m', TextColor.color(151, 22, 7))); // Redstone
+        formats.add(CharacterAndFormat.characterAndFormat('n', TextColor.color(180, 104, 77))); // Copper
+        formats.add(CharacterAndFormat.characterAndFormat('p', TextColor.color(222, 177, 45))); // Gold
+        formats.add(CharacterAndFormat.characterAndFormat('q', TextColor.color(17, 160, 54))); // Emerald
+        formats.add(CharacterAndFormat.characterAndFormat('s', TextColor.color(44, 186, 168))); // Diamond
+        formats.add(CharacterAndFormat.characterAndFormat('t', TextColor.color(33, 73, 123))); // Lapis
+        formats.add(CharacterAndFormat.characterAndFormat('u', TextColor.color(154, 92, 198))); // Amethyst
+        formats.add(CharacterAndFormat.characterAndFormat('v', TextColor.color(235, 114, 20))); // Resin
+
+        ComponentFlattener flattener = ComponentFlattener.basic().toBuilder()
+            .nestingLimit(30)
+            .complexMapper(TranslatableComponent.class, (translatable, consumer) -> {
+                final String translated = translatable.key();
+                final Matcher matcher = LOCALIZATION_PATTERN.matcher(translated);
+                final List<TranslationArgument> args = translatable.arguments();
+                int argPosition = 0;
+                int lastIdx = 0;
+                while (matcher.find()) {
+                    // append prior
+                    if (lastIdx < matcher.start()) {
+                        consumer.accept(Component.text(translated.substring(lastIdx, matcher.start())));
+                    }
+                    lastIdx = matcher.end();
+
+                    final @Nullable String argIdx = matcher.group(1);
+                    // calculate argument position
+                    if (argIdx != null) {
+                        try {
+                            final int idx = Integer.parseInt(argIdx) - 1;
+                            if (idx < args.size()) {
+                                consumer.accept(args.get(idx).asComponent());
+                            }
+                        } catch (final NumberFormatException ex) {
+                            // ignore, drop the format placeholder
+                        }
+                    } else {
+                        final int idx = argPosition++;
+                        if (idx < args.size()) {
+                            consumer.accept(args.get(idx).asComponent());
+                        }
+                    }
+                }
+
+                // append tail
+                if (lastIdx < translated.length()) {
+                    consumer.accept(Component.text(translated.substring(lastIdx)));
+                }
+            })
+            .build();
+
+        BEDROCK_SERIALIZER = LegacyComponentSerializer.legacySection().toBuilder()
+                .formats(formats)
+                .flattener(flattener)
+                .build();
+
+        // Cache all the legacy character codes and formats
+
+        StringBuilder colorBuilder = new StringBuilder();
+        StringBuilder decorationBuilder = new StringBuilder();
+
+        for (CharacterAndFormat format : formats) {
+            if (format.format() instanceof TextColor) {
+                colorBuilder.append(format.character());
+            }
+            if (format.format() instanceof TextDecoration) {
+                decorationBuilder.append(format.character());
+            }
+        }
+
+        BEDROCK_COLORS = colorBuilder.toString();
+        BEDROCK_DECORATIONS = decorationBuilder.toString();
+
+        if (BEDROCK_COLORS.length() + BEDROCK_DECORATIONS.length() > 32) {
+            throw new AssertionError("Cannot exceed 32 characters due to int-limit on formatting flags");
+        }
+    }
+
+    /* ===== Java -> Bedrock conversion ===== */
+
+    private static String convertMessage(Component message, String locale, boolean addLeadingResetFormat) {
+        // Converting messages is quite a hot path, so the code is a bit less optimized for reading and more optimized for performance.
+        try {
+            // Translate any components that require it
+            message = RENDERER.render(message, locale);
+
+            String legacy = BEDROCK_SERIALIZER.serialize(message);
+            int legacyLength = legacy.length();
+
+            // We need to allocate at least the length of the original message, it can only grow
+            StringBuilder finalLegacy = new StringBuilder(legacyLength + (addLeadingResetFormat ? 2 : 0));
+            if (addLeadingResetFormat) finalLegacy.append(RESET);
+
+            // A bit for each possible legacy color & formatting, since it's already been converted to legacy colors at this point.
+            int appliedFormatting = 0;
+
+            boolean lastFormatReset = addLeadingResetFormat;
+
+            for (int i = 0; i < legacyLength; i++) {
+                char legacyChar = legacy.charAt(i);
+                if (legacyChar != ChatColor.ESCAPE || i == legacyLength - 1) {
+                    // No special formatting for Bedrock needed, or we're at the end of the string.
+                    // If the string ends with an escape then Java will silently ignore it. We don't have to remove it.
+                    finalLegacy.append(legacyChar);
+                    lastFormatReset = false;
+
+                    // However, it can still be a newline.
+                    if (legacyChar == '\n' && appliedFormatting != 0) {
+                        // If there's a new line, then we need to readd the formatting.
+                        // Java does continue with the same formatting, but Bedrock doesn't.
+                        applyFormattingFlags(appliedFormatting, finalLegacy);
+                    }
+                    continue;
+                }
+
+                char next = legacy.charAt(++i);
+                if (lastFormatReset && next == 'r') {
+                    // If we have two resets in a row, skip the second one.
+                    continue;
+                }
+
+                if (!lastFormatReset && BEDROCK_COLORS.indexOf(next) != -1 && appliedFormatting != 0) {
+                    // Unlike Java Edition, the chat formatting (e.g. bold) is not reset when a ChatColor is added
+                    finalLegacy.append(RESET);
+                }
+                finalLegacy.append(BASE).append(next);
+                lastFormatReset = next == 'r';
+
+                // Store formatting so we can restore it if there are newlines.
+                appliedFormatting = setFormattingFlag(appliedFormatting, next);
+            }
+
+            // Remove dangling tail paragraph sign just like Java Edition does, and remove tail reset
+            int tailRemove = 0;
+            if (endsWith(finalLegacy, BASE)) tailRemove += BASE.length();
+            if (endsWith(finalLegacy, RESET)) tailRemove += RESET.length();
+
+            if (tailRemove > 0) {
+                return finalLegacy.substring(0, finalLegacy.length() - tailRemove);
+            }
+
+            return finalLegacy.toString();
+        } catch (Exception e) {
+            if (GeyserImpl.getInstance().config().debugMode()) {
+                GeyserImpl.getInstance().getLogger().debug(DefaultComponentSerializer.nbt().serialize(message));
+            }
+            GeyserImpl.getInstance().getLogger().error("Failed to parse message", e);
+
+            return "";
+        }
+    }
+
+    /**
+     * Convert a Java message to the legacy format ready for bedrock. Unlike {@link #convertMessage(Component, String)}
+     * this version does not add a leading color reset. In Bedrock some places have build-in colors.
+     *
+     * @param message Java message
+     * @param locale Locale to use for translation strings
+     * @return Parsed and formatted message for bedrock
+     */
+    public static String convertMessageRaw(Component message, String locale) {
+        return convertMessage(message, locale, false);
+    }
+
+    /**
+     * Convert a Java message to the legacy format ready for bedrock. Unlike
+     * {@link #convertMessageRaw(Component, String)} this adds a leading color reset. In Bedrock
+     * some places have build-in colors.
+     *
+     * @param message Java message
+     * @param locale Locale to use for translation strings
+     * @return Parsed and formatted message for bedrock
+     */
+    public static String convertMessage(Component message, String locale) {
+        return convertMessage(message, locale, true);
+    }
+
+    /**
+     * Convenience method for locale getting.
+     */
+    public static String convertMessage(GeyserSession session, Component message) {
+        return convertMessage(message, session.locale());
+    }
+
+    /**
+     * DO NOT USE THIS METHOD unless where you're calling from does not have a (reliable) way of getting the
+     * context's locale.
+     */
+    public static String convertMessage(Component message) {
+        return convertMessage(message, GeyserLocale.getDefaultLocale());
+    }
+
+    /* === java (legacy § strings) -> bedrock conversion === */
+
+    /**
+     * Converts a legacy Java string (using Java §-prefixed formatting codes) to a bedrock message.
+     *
+     * <p>This method parses the string into a component using {@link LegacyComponentSerializer},
+     * then converts that component using {@link MessageTranslator#convertMessage(Component, String)}.</p>
+     *
+     * @param message the legacy Java message
+     * @param locale the locale
+     * @return the converted message to be sent to bedrock
+     */
+    public static String convertLegacyMessage(String message, String locale) {
+        // Parse legacy message into component with LEGACY_JAVA_SERIALIZER, then convert component to bedrock string
+        try {
+            Component deserialized = LEGACY_JAVA_SERIALIZER.deserialize(message);
+            return convertMessage(deserialized, locale);
+        } catch (RuntimeException exception) {
+            return ERROR_MESSAGE;
+        }
+    }
+
+    /**
+     * Shorthand for {@link MessageTranslator#convertLegacyMessage(String, String)}.
+     */
+    public static String convertLegacyMessage(GeyserSession session, String message) {
+        return convertLegacyMessage(message, session.locale());
+    }
+
+    /* === java (nbt) -> bedrock conversion === */
+
+    /**
+     * Uses {@link MessageTranslator#convertNbtMessage(GeyserSession, Object)} to convert a Java text component,
+     * serialised to NBT, to a bedrock string.
+     *
+     * <p>This method has a few special cases:</p>
+     *
+     * <ul>
+     *     <li>For {@code null} messages, an empty string is returned.</li>
+     *     <li>For {@link String} tags, of which {@link String#isBlank()} returns true, the original, not-converted string is returned.</li>
+     *     <li>For empty {@link NbtList}s, an empty string is returned.</li>
+     *     <li>When {@link MessageTranslator#convertNbtMessage(GeyserSession, Object)} throws a {@link RuntimeException}, {@code fallback} is returned.</li>
+     * </ul>
+     *
+     * <p>Generally, prefer this method over {@link MessageTranslator#convertNbtMessage(Object, String)}, as it is safer and handles edge-cases.</p>
+     *
+     * @param tag the NBT tag to convert
+     * @param locale the locale to use
+     * @param fallback the string to return when an error occurs during conversion
+     * @return the converted message to be sent to bedrock
+     */
+    public static String convertLenientNbtMessage(@Nullable Object tag, String locale, String fallback) {
+        return switch (tag) {
+            case null -> "";
+            case String message when message.isBlank() -> message;
+            case NbtList<?> list when list.isEmpty() -> "";
+            default -> {
+                try {
+                    yield convertNbtMessage(tag, locale);
+                } catch (RuntimeException exception) {
+                    GeyserImpl.getInstance().getLogger().debug("Failed to translate NBT message leniently: " + tag, exception);
+                    yield fallback;
+                }
+            }
+        };
+    }
+
+    /**
+     * Shorthand for {@link MessageTranslator#convertLenientNbtMessage(Object, String, String)}, uses {@code "Report to Geyser"} as fallback.
+     */
+    public static String convertLenientNbtMessage(@Nullable Object tag, String locale) {
+        return convertLenientNbtMessage(tag, locale, ERROR_MESSAGE);
+    }
+
+    /**
+     * Shorthand for {@link MessageTranslator#convertLenientNbtMessage(Object, String, String)}, uses {@code "Report to Geyser"} as fallback and the session's locale.
+     */
+    public static String convertLenientNbtMessage(GeyserSession session, @Nullable Object tag) {
+        return convertLenientNbtMessage(tag, session.locale());
+    }
+
+    /**
+     * Shorthand method for {@link MessageTranslator#convertNbtMessage(Object, String)}.
+     *
+     * <p>Generally, prefer {@link MessageTranslator#convertLenientNbtMessage(GeyserSession, Object)} over this method, as it is safer and handles edge-cases.</p>
+     */
+    public static String convertNbtMessage(GeyserSession session, Object tag) {
+        return convertNbtMessage(tag, session.locale());
+    }
+
+    /**
+     * Parses the given NBT tag as a {@link Component} using {@link MessageTranslator#componentFromNbtTag(Object)}, then converts it
+     * to a bedrock message using {@link MessageTranslator#convertMessage(Component, String)}.
+     *
+     * <p>Generally prefer {@link MessageTranslator#convertLenientNbtMessage(Object, String)}, as it is safer and handles edge-cases.</p>
+     *
+     * @param tag the NBT tag to convert
+     * @param locale the locale to use
+     * @return the converted message to be sent to bedrock
+     */
+    public static String convertNbtMessage(Object tag, String locale) {
+        return convertMessage(componentFromNbtTag(tag), locale);
+    }
+
+    /**
+     * Convert a Java message to the legacy format ready for bedrock, for use in item tooltips
+     * (a gray color is applied).
+     *
+     * @param message Java message
+     * @param locale Locale to use for translation strings
+     * @return Parsed and formatted message for bedrock, in gray color
+     */
+    public static String convertMessageForTooltip(Component message, String locale) {
+        return RESET + ChatColor.GRAY + convertMessageRaw(message, locale);
+    }
+
+    /* === Java -> Bedrock conversion (plain text) === */
+
+    /**
+     * Convert a Java message to plain text
+     *
+     * @param message Message to convert
+     * @param locale Locale to use for translation strings
+     * @return The plain text of the message
+     */
+    public static String convertToPlainText(Component message, String locale) {
+        if (message == null) {
+            return "";
+        }
+        return PlainTextComponentSerializer.plainText().serialize(RENDERER.render(message, locale));
+    }
+
+    /**
+     * Convert legacy format message to plain text
+     *
+     * @param message Message to convert
+     * @return The plain text of the message
+     */
+    public static String convertIncomingToPlainText(String message) {
+        GeyserImpl instance = GeyserImpl.getInstance();
+        if (instance == null || instance.config().gameplay().blockLegacyCodes()) {
+            char[] input = message.toCharArray();
+            char[] output = new char[input.length];
+            int outputSize = 0;
+            for (int i = 0, inputLength = input.length; i < inputLength; i++) {
+                char c = input[i];
+                if (c == ChatColor.ESCAPE) {
+                    i++;
+                } else {
+                    output[outputSize++] = c;
+                }
+            }
+            return new String(output, 0, outputSize);
+        }
+        return message;
+    }
+
+    /**
+     * Convert JSON and legacy format message to plain text
+     *
+     * @param message Message to convert
+     * @param locale Locale to use for translation strings
+     * @return The plain text of the message
+     */
+    public static String convertToPlainTextLenient(String message, String locale) {
+        if (message == null) {
+            return "";
+        }
+        Component messageComponent = null;
+        if (message.startsWith("{") && message.endsWith("}")) {
+            // Message is a JSON object
+            try {
+                messageComponent = DefaultComponentSerializer.get().deserialize(message);
+                // Translate any components that require it
+                messageComponent = RENDERER.render(messageComponent, locale);
+            } catch (Exception ignored) {
+            }
+        }
+        if (messageComponent == null) {
+            messageComponent = LegacyComponentSerializer.legacySection().deserialize(message);
+        }
+        return PlainTextComponentSerializer.plainText().serialize(messageComponent);
+    }
+
+    /* ===== Java (NBT) component deserialisation ===== */
+
+    public static Component componentFromNbtTag(@Nullable Object nbtTag) {
+        if (nbtTag == null) {
+            return Component.empty();
+        }
+        return DefaultComponentSerializer.nbt().deserialize(nbtTag);
+    }
+
+    public static List<String> signTextFromNbtTag(GeyserSession session, Object nbtTag) {
+        // Try to parse the entire list as a component, which should work because the serializer allows deserializing a list of components,
+        // then convert each child component separately
+        // We have to convert sign text this way because the list can be a combination of e.g. compound tags and string tags wrapped in a compound (a heterogeneous NBT list)
+
+        if (!(nbtTag instanceof NbtList<?> list)) {
+            GeyserImpl.getInstance().getLogger().debug("Failed to translate sign text from NBT tag: " + nbtTag + " (was not a list of components)");
+            return List.of(ERROR_MESSAGE);
+        }
+
+        List<Object> components = HeterogeneousNbtList.tryUnwrap(list);
+
+        try {
+            List<String> messages = new ArrayList<>(components.size());
+            for (Object component : components) {
+                messages.add(convertMessageRaw(componentFromNbtTag(component), session.locale()));
+            }
+            return Collections.unmodifiableList(messages);
+        } catch (RuntimeException exception) {
+            GeyserImpl.getInstance().getLogger().debug("Failed to translate sign text from NBT tag: " + nbtTag, exception);
+            return List.of(ERROR_MESSAGE);
+        }
+    }
+
+    public static Style getStyleFromNbtMap(NbtMap map) {
+        Style.Builder style = Style.style();
+
+        String colorString = map.getString("color", null);
+        if (colorString != null && !colorString.isEmpty()) {
+            if (colorString.charAt(0) == TextColor.HEX_CHARACTER) {
+                style.color(TextColor.fromHexString(colorString));
+            } else {
+                style.color(NamedTextColor.NAMES.value(colorString));
+            }
+        }
+
+        map.listenForBoolean("bold", value -> style.decoration(TextDecoration.BOLD, value));
+        map.listenForBoolean("italic", value -> style.decoration(TextDecoration.ITALIC, value));
+        map.listenForBoolean("underlined", value -> style.decoration(TextDecoration.UNDERLINED, value));
+        map.listenForBoolean("strikethrough", value -> style.decoration(TextDecoration.STRIKETHROUGH, value));
+        map.listenForBoolean("obfuscated", value -> style.decoration(TextDecoration.OBFUSCATED, value));
+
+        return style.build();
+    }
+
+    /* ===== Utility methods ===== */
+
+    public static void handleChatPacket(GeyserSession session, Component message, Holder<ChatType> chatTypeHolder, Component targetName, Component sender, @Nullable UUID senderUuid) {
+        TextPacket textPacket = new TextPacket();
+        textPacket.setPlatformChatId("");
+        textPacket.setSourceName("");
+
+        if (senderUuid == null) {
+            textPacket.setXuid(session.getAuthData().xuid());
+        } else {
+            String xuid = "";
+            GeyserSession playerSession = GeyserImpl.getInstance().connectionByUuid(senderUuid);
+
+            // Prefer looking up xuid using the session to catch linked players
+            if (playerSession != null) {
+                xuid = playerSession.getAuthData().xuid();
+            } else if (senderUuid.version() == 0) {
+                xuid = Long.toString(senderUuid.getLeastSignificantBits());
+            }
+            textPacket.setXuid(xuid);
+        }
+        textPacket.setType(TextPacket.Type.CHAT);
+
+        textPacket.setNeedsTranslation(false);
+
+        ChatType chatType = chatTypeHolder.getOrCompute(JavaRegistries.CHAT_TYPE.resolver(session));
+        if (chatType != null && chatType.chat() != null) {
+            var chat = chatType.chat();
+            // As of 1.19 - do this to apply all the styling for signed messages
+            // Though, Bedrock cannot care about the signed stuff.
+            TranslatableComponent.Builder withDecoration = Component.translatable()
+                .key(chat.translationKey())
+                .style(ChatDecoration.getStyle(chat));
+            List<ChatTypeDecoration.Parameter> parameters = chat.parameters();
+            List<Component> args = new ArrayList<>(3);
+            if (parameters.contains(ChatDecoration.Parameter.TARGET)) {
+                args.add(targetName);
+            }
+            if (parameters.contains(ChatDecoration.Parameter.SENDER)) {
+                args.add(sender);
+            }
+            if (parameters.contains(ChatDecoration.Parameter.CONTENT)) {
+                args.add(message);
+            }
+            withDecoration.arguments(args);
+            textPacket.setMessage(MessageTranslator.convertMessage(withDecoration.build(), session.locale()));
+        } else {
+            session.getGeyser().getLogger().debug("Likely illegal chat type detection found.");
+            if (session.getGeyser().config().debugMode()) {
+                Thread.dumpStack();
+            }
+            textPacket.setMessage(MessageTranslator.convertMessage(message, session.locale()));
+        }
+
+        session.sendUpstreamPacket(textPacket);
+    }
+
+    /**
+     * Checks if the given message is over 256 characters (Java edition server chat limit) and sends a message to the user if it is
+     *
+     * @param message Message to check
+     * @param session {@link GeyserSession} for the user
+     * @return True if the message is too long, false if not
+     */
+    public static boolean isTooLong(String message, GeyserSession session) {
+        if (message.length() > 256) {
+            session.sendMessage(GeyserLocale.getPlayerLocaleString("geyser.chat.too_long", session.locale(), message.length()));
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Normalizes whitespaces - a thing a vanilla client apparently does with commands and chat messages.
+     */
+    public static String normalizeSpace(String string) {
+        if (string == null || string.isEmpty()) {
+            return string;
+        }
+        final int size = string.length();
+        final char[] newChars = new char[size];
+        int count = 0;
+        int whitespacesCount = 0;
+        boolean startWhitespaces = true;
+        for (int i = 0; i < size; i++) {
+            final char actualChar = string.charAt(i);
+            final boolean isWhitespace = Character.isWhitespace(actualChar);
+            if (isWhitespace) {
+                if (whitespacesCount == 0 && !startWhitespaces) {
+                    newChars[count++] = ' ';
+                }
+                whitespacesCount++;
+            } else {
+                startWhitespaces = false;
+                // Replace non-breaking spaces with regular spaces for normalization
+                newChars[count++] = (actualChar == '\u00A0' ? ' ' : actualChar);
+                whitespacesCount = 0;
+            }
+        }
+        if (startWhitespaces) {
+            return "";
+        }
+        return new String(newChars, 0, count - (whitespacesCount > 0 ? 1 : 0)).trim();
+    }
+
+    private static int setFormattingFlag(int flags, char format) {
+        // Reset resets all formatting, and is registered as neither a color nor decoration.
+        if (format == 'r') {
+            return 0;
+        }
+
+        int index = BEDROCK_COLORS.indexOf(format);
+        if (index == -1) {
+            index = BEDROCK_DECORATIONS.indexOf(format);
+            if (index == -1) {
+                // Just silently ignore if it's an unknown format
+                return flags;
+            }
+
+            // You can have multiple decorations.
+            return flags | (1 << (BEDROCK_COLORS.length() + index));
+        }
+
+        // Colors reset all formatting on Java Edition. Note that Bedrock Edition doesn't do this,
+        // but the method callee makes sure that a reset is added.
+        return 1 << index;
+    }
+
+    private static void applyFormattingFlags(int flags, StringBuilder builder) {
+        int colorCount = BEDROCK_COLORS.length();
+
+        for (int i = 0; i < colorCount; i++) {
+            if (((flags >> i) & 0x01) == 0x01) {
+                builder.append(BASE).append(BEDROCK_COLORS.charAt(i));
+            }
+        }
+        for (int i = 0; i < BEDROCK_DECORATIONS.length(); i++) {
+            if (((flags >> (i + colorCount)) & 0x01) == 0x01) {
+                builder.append(BASE).append(BEDROCK_DECORATIONS.charAt(i));
+            }
+        }
+    }
+
+    private static boolean endsWith(StringBuilder builder, String suffix) {
+        if (builder.length() < suffix.length()) {
+            return false;
+        }
+        return builder.indexOf(suffix, builder.length() - suffix.length()) != -1;
+    }
+
+    public static void init() {
+        // no-op
+    }
+}
