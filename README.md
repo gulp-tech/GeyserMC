@@ -132,6 +132,50 @@ Prebuilt jars of this fork are published automatically by the `Fork Build` workf
 | `Geyser-ViaProxy.jar` | ViaProxy — `plugins/` |
 | `Geyser-Standalone.jar` | standalone — `java -jar Geyser-Standalone.jar` |
 
+## NetherNet (Minecraft: Bedrock 26.40+, RakNet removed in 26.60)
+
+Bedrock clients on **26.40 and newer** already try to connect through NetherNet (WebRTC + TCP
+signaling). A server that only listens on RakNet answers nothing to that attempt, and the client shows
+**"Connection to the network game failed" / «Сбой подключения к игре по сети»** with a link to the
+NetherNet help page — while players on older clients still get in. From **26.60** RakNet is gone
+entirely, so NetherNet is mandatory from then on.
+
+Enable both transports in `config.yml` (`examples/geyser-config-voidpe.yml` in this repo is already
+set up this way):
+
+```yaml
+bedrock:
+  address: 0.0.0.0
+  port: 19139          # RakNet, is also the TCP port for built-in signaling
+  webrtc-port: 19140   # NetherNet/WebRTC, must differ from "port" with transport: both
+  transport: both      # nethernet if all players are on 26.40+
+
+  signaling:
+    mode: builtin
+    advertise-addresses: []
+    stun-discovery: true
+```
+
+Ports that must be reachable from the internet:
+
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| `19139` | UDP | RakNet — older clients |
+| `19140` | UDP | NetherNet / WebRTC — 26.40+ clients |
+| `19139` | TCP | Built-in signaling — how 26.40+ clients *find* the server |
+
+Notes:
+
+* With `mode: builtin` and plain HTTP, each player sees a one-time "trust on first use" prompt.
+  Configure `signaling.builtin.https.certificate` (or a reverse proxy with
+  `advanced.bedrock.signaling-trusted-proxies`) to remove it.
+* If the host cannot expose a TCP port, use `signaling.mode: nxs` (external signaling service,
+  needs a token) — it needs no inbound TCP port at all.
+* `clone-remote-port: true` cannot work with built-in signaling, because the Java server already owns
+  that TCP port; Geyser then falls back to external signaling automatically.
+* The console also prints `NetherNet will not start!` / `Built-in signaling could not start` when
+  something is misconfigured — check the startup log after enabling it.
+
 ## Building
 
 The build is unchanged from upstream:
