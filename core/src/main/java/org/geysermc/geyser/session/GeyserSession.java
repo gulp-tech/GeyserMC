@@ -1246,48 +1246,70 @@ public class GeyserSession implements GeyserConnection, GeyserCommandSource, Jav
     }
 
     public void disconnect(Component reason) {
-        if (!closed) {
-            loggedIn = false;
-
-            SessionDisconnectEvent disconnectEvent = new SessionDisconnectEventImpl(this, reason);
-            if (authData != null && clientData != null) { // can occur if player disconnects before Bedrock auth finishes
-                // Fire SessionDisconnectEvent
-                geyser.getEventBus().fire(disconnectEvent);
+        try {
+            disconnect0(reason);
+        } catch (Throwable throwable) {
+            // Never let a failing disconnect listener leave the session behind: a session that is never
+            // marked as closed keeps its tick thread running, keeps the player in the session manager
+            // and makes a reconnect fail with "already logged in".
+            geyser.getLogger().error("Error while disconnecting " + bedrockUsername(), throwable);
+        } finally {
+            if (tickThread != null) {
+                tickThread.cancel(false);
             }
 
-            // Disconnect downstream if necessary
-            if (downstream != null) {
-                // No need to disconnect if already closed
-                if (!downstream.isClosed()) {
-                    downstream.disconnect(reason);
+            queuedImmediatelyPackets.clear();
+
+            boolean wasClosed = closed;
+            // Mark session as closed before cancelling erosion futures
+            closed = true;
+            if (erosionHandler != null) {
+                erosionHandler.close();
+            }
+
+            if (!wasClosed) {
+                try {
+                    geyser.getSessionManager().removeSession(this);
+                } catch (Throwable throwable) {
+                    geyser.getLogger().debug("Could not remove session of " + bedrockUsername() + " from the session manager", throwable);
                 }
-            } else {
-                // Downstream's disconnect will fire an event that prints a log message
-                // Otherwise, we print a message here
-                String address = geyser.config().logPlayerIpAddresses() ? upstream.getAddress().getAddress().toString() : "<IP address withheld>";
-                geyser.getLogger().info(GeyserLocale.getLocaleStringLog("geyser.network.disconnect", address, MessageTranslator.convertMessage(reason)));
             }
+        }
+    }
 
-            // Disconnect upstream if necessary
-            if (!upstream.isClosed()) {
-                upstream.disconnect(disconnectEvent.disconnectReason());
-            }
+    private void disconnect0(Component reason) {
+        if (closed) {
+            return;
+        }
+        loggedIn = false;
 
-            // Remove from session manager
-            geyser.getSessionManager().removeSession(this);
-            // Don't cancel any pending Microsoft auth here - the whole point of PendingMicrosoftAuthentication
-            // is to let mobile users disconnect to finish auth in the browser. Task cleans up on timeout.
+        SessionDisconnectEvent disconnectEvent = new SessionDisconnectEventImpl(this, reason);
+        if (authData != null && clientData != null) { // can occur if player disconnects before Bedrock auth finishes
+            // Fire SessionDisconnectEvent
+            geyser.getEventBus().fire(disconnectEvent);
         }
 
-        if (tickThread != null) {
-            tickThread.cancel(false);
+        // Disconnect downstream if necessary
+        if (downstream != null) {
+            // No need to disconnect if already closed
+            if (!downstream.isClosed()) {
+                downstream.disconnect(reason);
+            }
+        } else {
+            // Downstream's disconnect will fire an event that prints a log message
+            // Otherwise, we print a message here
+            String address = geyser.config().logPlayerIpAddresses() ? upstream.getAddress().getAddress().toString() : "<IP address withheld>";
+            geyser.getLogger().info(GeyserLocale.getLocaleStringLog("geyser.network.disconnect", address, MessageTranslator.convertMessage(reason)));
         }
 
-        queuedImmediatelyPackets.clear();
+        // Disconnect upstream if necessary
+        if (!upstream.isClosed()) {
+            upstream.disconnect(disconnectEvent.disconnectReason());
+        }
 
-        // Mark session as closed before cancelling erosion futures
-        closed = true;
-        erosionHandler.close();
+        // The session is removed from the session manager in disconnect(Component)'s finally block.
+        // Don't cancel any pending Microsoft auth here - the whole point of PendingMicrosoftAuthentication
+        // is to let mobile users disconnect to finish auth in the browser. Task cleans up on timeout.
     }
 
     /**
@@ -1433,8 +1455,11 @@ public class GeyserSession implements GeyserConnection, GeyserCommandSource, Jav
             this.dialogManager.tick();
             this.waypointCache.tick();
 
-            this.upstream.getSession().getPeer().sendPacketsImmediately(0, 0, queuedImmediatelyPackets.toArray(new BedrockPacket[0]));
-            queuedImmediatelyPackets.clear();
+            if (!queuedImmediatelyPackets.isEmpty()) {
+                // Avoid allocating an array for every tick on an idle session
+                this.upstream.getSession().getPeer().sendPacketsImmediately(0, 0, queuedImmediatelyPackets.toArray(new BedrockPacket[0]));
+                queuedImmediatelyPackets.clear();
+            }
 
             CooldownUtils.tickCooldown(this);
         } catch (Throwable throwable) {

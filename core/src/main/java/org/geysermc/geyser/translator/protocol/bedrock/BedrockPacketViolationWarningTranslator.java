@@ -38,8 +38,17 @@ public class BedrockPacketViolationWarningTranslator extends PacketTranslator<Pa
     public void translate(GeyserSession session, PacketViolationWarningPacket packet) {
         // Not translated since this is something that the developers need to know
         GeyserLogger logger = session.getGeyser().getLogger();
+
+        // Only a fatal violation means the client gave up on the packet. A warning means the client
+        // clamped an out-of-range value and kept playing - ending the session for that is exactly
+        // what used to disconnect players for no good reason.
+        boolean fatal = String.valueOf(packet.getSeverity()).endsWith("FATAL");
+
         if (logger.isDebug()) {
             logger.error("Packet violation warning sent from client (%s): %s".formatted(session.bedrockUsername(), packet));
+            if (fatal) {
+                session.disconnect("An error occurred! Please contact an administrator.");
+            }
             return;
         }
 
@@ -50,7 +59,10 @@ public class BedrockPacketViolationWarningTranslator extends PacketTranslator<Pa
 
         logger.warning("Received packet violation warning (type: %s, severity: %s, packetCauseId: %s) from client (%s): %s! Enable debug mode for the full message.".formatted(packet.getType(),
             packet.getSeverity(), packet.getPacketCauseId(), session.bedrockUsername(), sanitize(message)));
-        session.disconnect("An error occurred! Please contact an administrator.");
+
+        if (fatal) {
+            session.disconnect("An error occurred! Please contact an administrator.");
+        }
     }
 
     private static String sanitize(String message) {

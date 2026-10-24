@@ -26,10 +26,13 @@
 package org.geysermc.geyser.registry;
 
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.IntArrays;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.geysermc.geyser.registry.loader.RegistryLoader;
 
+import java.util.Arrays;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -41,41 +44,117 @@ import java.util.function.Supplier;
  * @param <V> the value
  */
 public class VersionedRegistry<V> extends AbstractMappedRegistry<Integer, V, Int2ObjectMap<V>> {
+    /**
+     * Sorted snapshot of the registered versions, rebuilt lazily after a mutation.
+     * Immutable, so {@link #forVersion(int)} can be called from any thread without locking.
+     */
+    private volatile Snapshot<V> snapshot;
+
     protected <I> VersionedRegistry(I input, RegistryLoader<I, Int2ObjectMap<V>> registryLoader) {
         super(input, registryLoader);
     }
 
     /**
-     * Gets the closest value for the specified version. Only
-     * returns versions higher up than the specified if one
-     * does not exist for the given one. Useful in the event
-     * that you want to get a resource which is guaranteed for
+     * Gets the value registered for the newest version that is not newer than the given one.
+     * Useful in the event that you want to get a resource which is guaranteed to exist for
      * older versions, but not on newer ones.
+     *
+     * <p>The lookup uses a lazily built, immutable sorted snapshot of the registered versions,
+     * so repeated lookups (which happen on hot paths such as inventory translation) are a
+     * binary search instead of a linear scan. The snapshot is rebuilt after any registration.</p>
      *
      * @param version the version
      * @return the closest value for the specified version
-     * @throws IllegalArgumentException if no values exist at or above the given version
+     * @throws IllegalArgumentException if no registered version is at or below the given version
      */
+    @SuppressWarnings("unchecked")
     @NonNull
     public V forVersion(int version) {
-        Int2ObjectMap.Entry<V> current = null;
-        for (Int2ObjectMap.Entry<V> entry : this.mappings.int2ObjectEntrySet()) {
-            int currentVersion = entry.getIntKey();
-            if (version < currentVersion) {
-                continue;
-            }
-            if (version == currentVersion) {
-                return entry.getValue();
-            }
-            if (current == null || current.getIntKey() < currentVersion) {
-                // This version is newer and should be prioritized
-                current = entry;
-            }
+        Snapshot<V> snapshot = this.snapshot;
+        if (snapshot == null) {
+            snapshot = rebuildSnapshot();
         }
-        if (current == null) {
+
+        int[] versions = snapshot.versions;
+        if (versions.length == 0) {
             throw new IllegalArgumentException("No appropriate value for version: " + version);
         }
-        return current.getValue();
+
+        // Binary search for the newest registered version that is not newer than the requested one
+        int index = Arrays.binarySearch(versions, version);
+        if (index < 0) {
+            index = -index - 2;
+        }
+        if (index < 0) {
+            throw new IllegalArgumentException("No appropriate value for version: " + version);
+        }
+        return snapshot.values[index];
+    }
+
+    private Snapshot<V> rebuildSnapshot() {
+        synchronized (this) {
+            Snapshot<V> snapshot = this.snapshot;
+            if (snapshot == null) {
+                snapshot = createSnapshot();
+                this.snapshot = snapshot;
+            }
+            return snapshot;
+        }
+    }
+
+    private Snapshot<V> createSnapshot() {
+        if (this.mappings == null || this.mappings.isEmpty()) {
+            return new Snapshot<>(new int[0], new Object[0]);
+        }
+
+        int[] versions = new int[this.mappings.size()];
+        int index = 0;
+        for (int version : this.mappings.keySet()) {
+            versions[index++] = version;
+        }
+        IntArrays.quickSort(versions);
+
+        Object[] values = new Object[versions.length];
+        for (int i = 0; i < versions.length; i++) {
+            values[i] = this.mappings.get(versions[i]);
+        }
+        return new Snapshot<>(versions, values);
+    }
+
+    /**
+     * Invalidates the cached snapshot - must be called whenever the underlying mappings change.
+     */
+    private void invalidate() {
+        this.snapshot = null;
+    }
+
+    @Override
+    public V register(Integer key, V value) {
+        V previous = super.register(key, value);
+        invalidate();
+        return previous;
+    }
+
+    @Override
+    public void register(Consumer<Int2ObjectMap<V>> consumer) {
+        super.register(consumer);
+        invalidate();
+    }
+
+    @Override
+    public void set(Int2ObjectMap<V> mappings) {
+        super.set(mappings);
+        invalidate();
+    }
+
+    private static final class Snapshot<V> {
+        private final int[] versions;
+        private final Object[] values;
+
+        private Snapshot(int[] versions, Object[] values) {
+            this.versions = versions;
+            this.values = values;
+        }
     }
 
     /**

@@ -297,10 +297,12 @@ public class BlockBreakHandler {
                     handleAbortBreaking(position);
                 }
                 default -> {
-                    GeyserImpl.getInstance().getLogger().warning("Unknown block break action (%s) received! (origin: %s)!"
+                    // Nothing to do for unknown actions: the client may be running a version that
+                    // introduced an action we do not handle yet. Ignoring it keeps the player in the
+                    // game, while kicking them used to drop sessions for a single odd packet.
+                    GeyserImpl.getInstance().getLogger().warning("Unknown block break action (%s) received, ignoring it! (origin: %s)!"
                         .formatted(actionData.getAction(), session.getDebugInfo()));
                     GeyserImpl.getInstance().getLogger().debug("Odd packet: " + packet);
-                    session.disconnect("Invalid block breaking action received!");
                 }
             }
         }

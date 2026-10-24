@@ -72,7 +72,19 @@ public abstract class GeyserServerInitializer extends BedrockServerInitializer {
         } catch (Throwable e) {
             // Error must be caught or it will be swallowed
             this.geyser.getLogger().error("Error occurred while initializing player!", e);
-            bedrockServerSession.disconnect(e.getMessage());
+            try {
+                String reason = e.getMessage() != null ? e.getMessage() : "An internal error occurred!";
+                bedrockServerSession.disconnect(reason);
+            } catch (Throwable disconnectError) {
+                // The connection may already be gone - never let cleanup throw out of initSession
+                this.geyser.getLogger().debug("Could not send disconnect reason to a failed session", disconnectError);
+            } finally {
+                try {
+                    bedrockServerSession.getPeer().getChannel().close();
+                } catch (Throwable closeError) {
+                    this.geyser.getLogger().debug("Could not close channel of a failed session", closeError);
+                }
+            }
         }
     }
 

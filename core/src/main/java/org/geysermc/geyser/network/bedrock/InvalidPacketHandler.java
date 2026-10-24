@@ -27,39 +27,149 @@ package org.geysermc.geyser.network.bedrock;
 
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.handler.codec.DecoderException;
+import io.netty.handler.codec.EncoderException;
 import lombok.RequiredArgsConstructor;
 import org.geysermc.geyser.GeyserImpl;
 import org.geysermc.geyser.GeyserLogger;
 import org.geysermc.geyser.session.GeyserSession;
 
-import java.util.stream.Stream;
+import java.io.IOException;
+import java.nio.channels.ClosedChannelException;
+import java.util.concurrent.RejectedExecutionException;
 
+/**
+ * Handles exceptions that bubble up from the Bedrock pipeline.
+ *
+ * <p>Not every exception means the player did something wrong: network hiccups, disconnects that race
+ * with in-flight packets, and single packets that a client sends with a slightly different (but
+ * harmless) layout used to kick the player with "An internal error occurred!". This handler
+ * distinguishes those cases so a transient problem no longer ends the session.</p>
+ */
 @RequiredArgsConstructor
 public class InvalidPacketHandler extends ChannelInboundHandlerAdapter {
     public static final String NAME = "rak-error-handler";
 
+    /**
+     * How many packets we are willing to skip before we assume the connection is genuinely broken.
+     * Bedrock packets are length prefixed, so skipping one undecodable packet keeps the stream usable;
+     * a client that keeps sending garbage will still be disconnected.
+     *
+     * <p>Set {@code -DGeyser.MaxUndecodablePackets=0} to restore the old "kick on the first bad packet"
+     * behaviour, or a higher value for very chatty clients.</p>
+     */
+    private static final int MAX_UNDECODABLE_PACKETS = Math.max(0, Integer.getInteger("Geyser.MaxUndecodablePackets", 25));
+
     private final GeyserSession session;
 
+    private int undecodablePackets;
+
     @Override
-    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-        Throwable rootCause = Stream.iterate(cause, Throwable::getCause)
-                .filter(element -> element.getCause() == null)
-                .findFirst()
-                .orElse(cause);
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        Throwable rootCause = rootCause(cause);
 
         GeyserLogger logger = GeyserImpl.getInstance().getLogger();
 
-        if (!(rootCause instanceof IllegalPacketException)) {
-            // Kick users that cause exceptions
-            logger.error("Exception caught in session of " + session.bedrockUsername(), cause);
-            session.disconnect("An internal error occurred!");
-            session.forciblyCloseUpstream();
+        // The session is already gone (a disconnect raced with packets that were still in flight).
+        // There is nothing left to kick - just make sure the channel gets cleaned up quietly.
+        if (session.isClosed() || !ctx.channel().isActive()) {
+            logger.debug("Ignoring exception on closed session of " + session.bedrockUsername() + ": " + rootCause);
+            ctx.close();
             return;
         }
 
-        // Kick users that try to send illegal packets
-        logger.error("Illegal packet from " + session.bedrockUsername(), cause);
-        session.disconnect("Invalid packet received!");
-        session.forciblyCloseUpstream();
+        if (rootCause instanceof IllegalPacketException) {
+            // The client explicitly sent a packet it is not allowed to send (e.g. server-auth violations)
+            logger.error("Illegal packet from " + session.bedrockUsername(), cause);
+            closeWithReason("Invalid packet received!");
+            return;
+        }
+
+        if (isNetworkError(rootCause)) {
+            // Timeouts, resets and half-closed sockets are not our fault and not worth a scary kick message
+            logger.debug("Network error on session of " + session.bedrockUsername() + ": " + rootCause);
+            closeQuietly();
+            return;
+        }
+
+        if (isDecodingError(cause, rootCause)) {
+            // A single packet could not be decoded. For example, a client that is slightly ahead of the
+            // codec we ship, or a packet with an unexpected trailing field. The batch format is length
+            // prefixed, so we can drop just this packet instead of kicking the player.
+            if (++undecodablePackets <= MAX_UNDECODABLE_PACKETS) {
+                if (logger.isDebug() || undecodablePackets == 1) {
+                    logger.warning("Skipping undecodable packet from " + session.bedrockUsername()
+                            + " (" + undecodablePackets + "/" + MAX_UNDECODABLE_PACKETS + "): " + rootCause);
+                }
+                if (logger.isDebug()) {
+                    logger.debug("Undecodable packet", cause);
+                }
+                return;
+            }
+
+            logger.error("Too many undecodable packets from " + session.bedrockUsername() + ", disconnecting", cause);
+            closeWithReason("Invalid packet received!");
+            return;
+        }
+
+        // Genuinely unexpected: the session state may be inconsistent, so we still have to end it,
+        // but we make sure the disconnect itself cannot throw and leave the channel dangling.
+        logger.error("Exception caught in session of " + session.bedrockUsername(), cause);
+        closeWithReason("An internal error occurred!");
+    }
+
+    private static Throwable rootCause(Throwable cause) {
+        Throwable current = cause;
+        // Bounded walk so a (theoretical) cyclic cause chain cannot hang us
+        for (int i = 0; current.getCause() != null && current.getCause() != current && i < 32; i++) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
+    private static boolean isNetworkError(Throwable cause) {
+        return cause instanceof IOException
+                || cause instanceof ClosedChannelException
+                || cause instanceof RejectedExecutionException
+                || cause instanceof InterruptedException;
+    }
+
+    private static boolean isDecodingError(Throwable cause, Throwable rootCause) {
+        if (!(cause instanceof DecoderException)) {
+            return false;
+        }
+        // EncoderException means *we* produced something the client cannot read - that is a Geyser bug,
+        // and retrying the same packet will not help.
+        for (Throwable current = cause; current != null; current = current.getCause()) {
+            if (current instanceof EncoderException) {
+                return false;
+            }
+            if (current == current.getCause()) {
+                break;
+            }
+        }
+        // Exceptions thrown while serializing our own packets are not decoding errors either
+        return !(rootCause instanceof IllegalPacketException && rootCause.getMessage() != null
+                && rootCause.getMessage().startsWith("Server tried to send"));
+    }
+
+    private void closeWithReason(String reason) {
+        try {
+            session.disconnect(reason);
+        } catch (Throwable ex) {
+            GeyserImpl.getInstance().getLogger().debug("Could not send disconnect reason to " + session.bedrockUsername(), ex);
+        } finally {
+            closeQuietly();
+        }
+    }
+
+    private void closeQuietly() {
+        try {
+            if (!session.isClosed()) {
+                session.forciblyCloseUpstream();
+            }
+        } catch (Throwable ex) {
+            GeyserImpl.getInstance().getLogger().debug("Could not close session of " + session.bedrockUsername(), ex);
+        }
     }
 }

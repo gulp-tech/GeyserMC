@@ -63,6 +63,40 @@ Java Edition side: whatever Minecraft version this snapshot targets (26.3 / prot
   `BedrockResourceAvailabilityTest` asserts that every protocol Geyser advertises ships all the
   data files it needs, so a missing palette fails in CI instead of at runtime.
 
+### Stability — fewer disconnects
+
+A player being kicked with "An internal error occurred!" or "Invalid packet received!" was the most
+common complaint, caused by a single odd packet or a network hiccup ending the whole session:
+
+* **`InvalidPacketHandler` now classifies exceptions instead of kicking on everything.**
+  * Only true `IllegalPacketException`s (packets a client must never send) still disconnect the player.
+  * I/O errors, timeouts, closed channels and rejected tasks are logged at debug level and the channel
+    is closed quietly — no scary message for a packet that arrived after the disconnect.
+  * A packet that simply cannot be decoded (newer client field layout, unexpected trailing data) is
+    skipped instead of ending the session, because Bedrock batches are length prefixed. After 25 such
+    packets the player is still disconnected; `-DGeyser.MaxUndecodablePackets=0` restores the old
+    behaviour and any other value sets a new limit.
+  * Exceptions on an already closed session are ignored, and every disconnect path is exception safe,
+    so a failing listener can no longer leave a "ghost" session behind.
+* **Packet violation warnings no longer kick** unless the client reports a `FATAL` severity; a warning
+  means the client clamped an out-of-range value and kept playing.
+* **Unknown block break actions are ignored** with a warning instead of disconnecting the player.
+* **`GeyserSession#disconnect` always completes cleanup** — the session is removed from the session
+  manager and its tick thread is cancelled even if a `SessionDisconnectEvent` listener throws, which
+  previously caused "you are already logged in" errors on reconnect.
+* **`GeyserServerInitializer` can no longer throw while reporting an initialisation failure.**
+
+### Performance
+
+* **`VersionedRegistry#forVersion` is a binary search over a cached, sorted, immutable snapshot**
+  instead of a linear scan of every registered version. It is queried on hot paths such as inventory
+  translation (`getTotemOfUndying`, `getUnusableSpaceBlockDefinition`, `getUpgradeTemplate`), so this
+  removes a scan (and an iterator allocation) per inventory update; the snapshot is invalidated
+  automatically on `register`/`set`.
+* **The session tick no longer allocates an empty packet array** every tick when nothing was queued.
+* `VersionedRegistryTest` covers exact matches, closest-lower lookups, the "no version" case and cache
+  invalidation.
+
 ## Download
 
 Prebuilt jars of this fork are published automatically by the `Fork Build` workflow:
