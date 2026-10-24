@@ -175,6 +175,12 @@ Notes:
   that TCP port; Geyser then falls back to external signaling automatically.
 * The console also prints `NetherNet will not start!` / `Built-in signaling could not start` when
   something is misconfigured — check the startup log after enabling it.
+* **`<player> could not connect over NetherNet: no network path to this server was found. Their device
+  needs to reach UDP port <webrtc-port> on one of the addresses this server advertises.`** — signaling
+  worked (the client found the server), but the WebRTC UDP port is unreachable. On a hosting panel this
+  almost always means `webrtc-port` is not one of the allocated ports: set it to an allocation you own
+  and restart. On a panel that keeps the public port equal to the container port (Pterodactyl), the
+  advertised port must be that same number.
 
 ## Building
 
