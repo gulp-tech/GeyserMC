@@ -117,7 +117,9 @@ public class UpstreamPacketHandler extends LoggingPacketHandler {
         BedrockCodec packetCodec = GameProtocol.getBedrockCodec(protocolVersion);
         if (packetCodec == null) {
             // None of our Bedrock codecs support this client version, so we can simply compare it to our default protocol.
-            String supportedVersions = GameProtocol.getAllSupportedBedrockVersions();
+            // This fork supports ~40 Bedrock version names; Bedrock cuts off long disconnect messages,
+            // so advertise the range instead of listing every single version.
+            String supportedVersions = GameProtocol.getSupportedBedrockVersionRange();
             if (protocolVersion > GameProtocol.DEFAULT_BEDROCK_PROTOCOL) {
                 // Too early to determine session locale
                 String disconnectMessage = GeyserLocale.getLocaleStringLog("geyser.network.outdated.server", supportedVersions);
@@ -183,7 +185,7 @@ public class UpstreamPacketHandler extends LoggingPacketHandler {
         }
 
         if (!networkSettingsRequested) {
-            session.disconnect(GeyserLocale.getLocaleStringLog("geyser.network.outdated.client", GameProtocol.getAllSupportedBedrockVersions()));
+            session.disconnect(GeyserLocale.getLocaleStringLog("geyser.network.outdated.client", GameProtocol.getSupportedBedrockVersionRange()));
             return PacketSignal.HANDLED;
         }
 
