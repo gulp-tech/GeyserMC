@@ -1,0 +1,243 @@
+# ============================================================
+#                   VoidPe | GEYSER  (проверено)
+# ============================================================
+#
+# Конфиг для этого форка Geyser (Bedrock 1.21.100 - 26.52).
+# Структура совпадает со схемой Geyser 2.12.0-SNAPSHOT, config-version 11.
+# Изменения относительно исходного файла помечены "ИЗМЕНЕНО"/"ВАЖНО".
+#
+# ============================================================
+
+
+# ============================================================
+#                   ПОДКЛЮЧЕНИЕ BEDROCK
+# ============================================================
+
+bedrock:
+
+  # IP-адрес, на котором сервер принимает подключения Bedrock.
+  address: 0.0.0.0
+
+  # UDP-порт для подключения игроков Bedrock.
+  # ВАЖНО: должен быть открыт именно UDP (не TCP) в фаерволе/панели хостинга.
+  port: 19139
+
+  # UDP-порт для соединений NetherNet. 0 = использовать основной порт Bedrock.
+  webrtc-port: 0
+
+  # Способ подключения игроков Bedrock.
+  # raknet — классический UDP. Работает на всех версиях до 26.52 включительно.
+  # ВАЖНО: Mojang убирает RakNet в Bedrock 26.60. Когда выйдет 26.60+,
+  # придётся перейти на "both" или "nethernet" (потребуется TCP-порт
+  # для сигнализации и раскомментированные настройки signaling ниже).
+  transport: raknet
+
+  # Автоматически использовать порт Java-сервера в качестве порта Bedrock.
+  clone-remote-port: false
+
+  # ----------------------------------------------------------
+  #                   СИГНАЛИЗАЦИЯ
+  # ----------------------------------------------------------
+  # Используется ТОЛЬКО при transport: nethernet / both.
+  # Сейчас (raknet) весь блок ниже ни на что не влияет — можно оставить как есть.
+
+  signaling:
+
+    mode: builtin
+
+    advertise-addresses: []
+
+    stun-discovery: true
+
+    builtin:
+
+      https:
+
+        certificate: ''
+
+        private-key: ''
+
+        password: ''
+
+    nxs:
+
+      token: ''
+
+      endpoint: https://agent.warden.cloud
+
+
+# ============================================================
+#                   АВТОРИЗАЦИЯ JAVA
+# ============================================================
+
+java:
+
+  # floodgate — обязателен установленный плагин Floodgate на Java-сервере.
+  # Если Floodgate не установлен, ВСЕ Bedrock-игроки будут получать отказ.
+  #
+  # ИЗМЕНЕНО (пояснение): address/port здесь не нужны — в плагинной версии
+  # Geyser они берутся у самого сервера автоматически (виртуальные поля).
+  auth-type: floodgate
+
+
+# ============================================================
+#                   ОПИСАНИЕ СЕРВЕРА
+# ============================================================
+
+motd:
+
+  primary-motd: '§b✦ §fVoid§bPe §b✦'
+
+  # ИЗМЕНЕНО: было '1.26+', но поддерживаемые версии — 1.21.100 … 26.52.
+  secondary-motd: '§7Bedrock §8| §b1.21.100 – 26.52'
+
+  passthrough-motd: false
+
+  # Влияет только на отображение и только если passthrough-player-counts: false.
+  # Сейчас реальный онлајн и максимум берутся с Java-сервера.
+  max-players: 100
+
+  passthrough-player-counts: true
+
+  integrated-ping-passthrough: true
+
+  ping-passthrough-interval: 3
+
+
+# ============================================================
+#                   НАСТРОЙКИ ИГРОВОГО ПРОЦЕССА
+# ============================================================
+
+gameplay:
+
+  server-name: VoidPE
+
+  cooldown-type: disabled
+
+  command-suggestions: true
+
+  show-coordinates: true
+
+  disable-bedrock-scaffolding: false
+
+  nether-roof-workaround: false
+
+  emotes-enabled: true
+
+  block-legacy-codes: true
+
+  unusable-space-block: minecraft:barrier
+
+  # Нужно для кастомных предметов/блоков и скелет-маппингов. Не выключать,
+  # если используете кастомный контент.
+  enable-custom-content: true
+
+  force-resource-packs: true
+
+  enable-integrated-pack: true
+
+  forward-player-ping: false
+
+  xbox-achievements-enabled: false
+
+  max-visible-custom-skulls: 128
+
+  custom-skull-render-distance: 32
+
+
+# ============================================================
+#                   ЯЗЫК И АВТОРИЗАЦИЯ
+# ============================================================
+
+# ru_ru корректно нормализуется в ru_RU — файл перевода есть.
+default-locale: ru_ru
+
+log-player-ip-addresses: true
+
+# Используется только при auth-type: online, при Floodgate не действует.
+saved-user-logins: []
+
+pending-authentication-timeout: 120
+
+# ИЗМЕНЕНО: 26.52 — максимум этого форка. При true Geyser будет
+# предупреждать "вышла новая версия", хотя обновление на upstream
+# лишило бы поддержки 1.21.100-26.2x. Поэтому выключаем.
+notify-on-new-bedrock-update: false
+
+
+# ============================================================
+#                   ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ
+# ============================================================
+
+advanced:
+
+  # ИЗМЕНЕНО: 0 полностью отключает кеш скинов на диск — каждый вход
+  # заново тянет скины из интернета. 7 дней — разумный компромисс.
+  cache-images: 7
+
+  scoreboard-packet-threshold: 20
+
+  add-team-suggestions: true
+
+  resource-pack-urls: []
+
+  # При установленном плагине Floodgate ключ подхватывается автоматически.
+  # Файл key.pem нужен только для standalone-Floodgate.
+  floodgate-key-file: key.pem
+
+
+  java:
+
+    use-haproxy-protocol: false
+
+    # true — только если Geyser запущен плагином/модом на том же сервере.
+    # На BungeeCord/Velocity перед сервером должно быть false.
+    use-direct-connection: true
+
+    disable-compression: true
+
+
+  bedrock:
+
+    broadcast-port: 0
+
+    compression-level: 6
+
+    use-haproxy-protocol: false
+
+    haproxy-protocol-whitelisted-ips: []
+
+    signaling-trusted-proxies: []
+
+    use-waterdogpe-forwarding: false
+
+    mtu: 1400
+
+    validate-bedrock-login: true
+
+    nethernet-debug: false
+
+
+  nxs:
+
+    assisted-joins: false
+
+    connection-checks: true
+
+    location: {}
+
+    deregister-on-shutdown: false
+
+
+# ============================================================
+#                   ОТЛАДКА И ВЕРСИЯ
+# ============================================================
+
+debug-mode: false
+
+# Текущая версия схемы для Geyser 2.12.0-SNAPSHOT (Constants.CONFIG_VERSION = 11).
+config-version: 11
+
+# ============================================================
+#                     VoidPe | GEYSER
+# ============================================================
