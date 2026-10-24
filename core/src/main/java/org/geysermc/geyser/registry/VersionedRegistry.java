@@ -88,7 +88,7 @@ public class VersionedRegistry<V> extends AbstractMappedRegistry<Integer, V, Int
         if (index < 0) {
             throw new IllegalArgumentException("No appropriate value for version: " + version);
         }
-        return snapshot.values[index];
+        return (V) snapshot.values[index];
     }
 
     private Snapshot<V> rebuildSnapshot() {
