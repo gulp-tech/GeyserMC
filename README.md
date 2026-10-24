@@ -181,6 +181,14 @@ Notes:
   almost always means `webrtc-port` is not one of the allocated ports: set it to an allocation you own
   and restart. On a panel that keeps the public port equal to the container port (Pterodactyl), the
   advertised port must be that same number.
+* Diagnosing that error in two log lines:
+  * `Built-in signaling started on http://0.0.0.0:<port>, with NetherNet on UDP port <webrtc-port>`
+    must name the port you actually allocated. If it says a port that is not in the panel, no client
+    will ever reach it.
+  * `STUN discovery ... maps this host to <public-ip>:<port>` — when the port matches `webrtc-port`
+    the host forwards ports 1:1, so an unreachable port is a missing allocation rather than NAT
+    translation. A different port means the host rewrites ports and `advertise-addresses` must use the
+    public one.
 
 ## Building
 
