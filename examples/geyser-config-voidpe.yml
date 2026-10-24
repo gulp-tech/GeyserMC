@@ -29,11 +29,16 @@ bedrock:
   # Players connect to it directly, so forward it when behind a router. With "nxs" signaling and
   # assisted-joins off, they cannot connect otherwise.
   #
-  # ИЗМЕНЕНО: 0 -> 19140
+  # ИЗМЕНЕНО: 0 -> 20243
   # ПРИЧИНА: при "transport: both" RakNet и NetherNet НЕ МОГУТ работать на одном UDP-порту
   # (Geyser пишет в лог "RakNet and NetherNet each need their own UDP port" и NetherNet не стартует).
-  # Этот порт тоже надо открыть: UDP 19140.
-  webrtc-port: 19140
+  #
+  # Порты из панели хостинга (Pterodactyl, нода 217.60.240.45):
+  #   20242 - основной (Java-сервер)          -> НЕ трогаем
+  #   20243 - свободная аллокация             -> NetherNet/WebRTC (эта строка)
+  #   19139 - аллокация под Bedrock           -> RakNet (UDP) + сигнализация (TCP), см. "port" выше
+  # Каждая аллокация в Pterodactyl открывает и TCP, и UDP - отдельно ничего докупать не нужно.
+  webrtc-port: 20243
 
   # How Bedrock players can connect. Changes require a restart.
   # "nethernet": the new connection method for Bedrock Edition. It needs signaling, see "signaling" below.
@@ -47,9 +52,10 @@ bedrock:
   #
   # ЧТО ОТКРЫТЬ НА ХОСТИНГЕ / В ФАЕРВОЛЕ:
   #   UDP 19139  - RakNet (старые клиенты)
-  #   UDP 19140  - NetherNet / WebRTC (клиенты 26.40+)
+  #   UDP 20243  - NetherNet / WebRTC (клиенты 26.40+)
   #   TCP 19139  - встроенная сигнализация NetherNet (mode: builtin). Без неё новые клиенты
   #                не смогут найти сервер, даже если UDP открыт.
+  # Все три порта уже есть в панели (19139 + свободная 20243), покупать новые не нужно.
   transport: both
 
   # Some hosting services change your Java port everytime you start the server and require the same port to be used for Bedrock.
@@ -74,13 +80,15 @@ bedrock:
     # to this machine. You need to set up the port forwarding yourself.
     # Leave empty to use this machine's own addresses, plus the public address found with "stun-discovery".
     #
-    # Если игроки жалуются, что через NetherNet "не подключается" (а через RakNet заходят), и STUN
-    # не определил внешний адрес - впишите свой адрес вручную, например:
-    #   advertise-addresses: ["194.87.209.146:19140"]
-    advertise-addresses: []
+    # ИЗМЕНЕНО: [] -> ["217.60.240.45:20243"]
+    # ПРИЧИНА: сервер живёт в контейнере Pterodactyl за NAT, и STUN не всегда определяет внешний
+    # адрес. Явный адрес исключает эту неопределённость: игроки получают ваш публичный IP и
+    # UDP-порт NetherNet. Если IP ноды или порт изменится - обновите эту строку.
+    advertise-addresses: ["217.60.240.45:20243"]
 
     # Finds this server's public address through STUN when "advertise-addresses" is empty.
     # Built-in signaling asks public STUN servers, and the external signaling service asks its own.
+    # При заполненном "advertise-addresses" STUN не используется (значение ниже на всякий случай).
     stun-discovery: true
 
     # Settings for built-in signaling. Only used in the "builtin" and "hybrid" modes.
