@@ -19,6 +19,11 @@
 bedrock:
   # The IP address that Geyser will bind on to listen for incoming Bedrock connections.
   # Generally, you should only change this if you want to limit what IPs can connect to your server.
+  #
+  # Если у части мобильных игроков не идёт подключение по RakNet, можно попробовать IPv6-вариант:
+  #   address: "::"   (на Linux принимает и IPv4, и IPv6)
+  # У вашей ноды есть публичный IPv6 (STUN показывал 2a0f:6282:20e::1), поэтому IPv6-игроки
+  # смогут подключаться напрямую. Возврат: address: 0.0.0.0
   address: 0.0.0.0
 
   # The port that Geyser will listen on for incoming Bedrock connections.
@@ -347,7 +352,11 @@ advanced:
 
     # The internet supports a maximum MTU of 1492 but could cause issues with packet fragmentation.
     # 1400 is the default.
-    mtu: 1400
+    # ИЗМЕНЕНО: 1400 -> 1200
+    # ПРИЧИНА: мобильные операторы и VPN часто режут пакеты крупнее ~1280 (CGNAT, туннели).
+    # RakNet согласует MTU с клиентом, но не больше значения ниже, поэтому 1200 - безопасный
+    # вариант, при котором телефоны подключаются стабильнее. На ПК разницы не заметно.
+    mtu: 1200
 
     # This option disables the auth step Geyser performs for connecting Bedrock players.
     # It can be used to allow connections from ProxyPass and WaterdogPE. In these cases, make sure that users
