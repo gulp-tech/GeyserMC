@@ -97,6 +97,13 @@ common complaint, caused by a single odd packet or a network hiccup ending the w
   `-DGeyser.StrictProtocolVersions=true` restores the strict behaviour.
 * **Kick logs now include the Bedrock protocol version**, so a report from a player can be traced back
   to the exact client build.
+* **Unsupported serverbound packets are dropped instead of kicking.** EDU-only, deprecated and
+  "unused" packets (photo/NPC/camera/editor/script packets, crafting events, sub-client logins, ...) are
+  ignored with a one-time debug message. Geyser still refuses to *send* them, so nothing changes on the
+  server side; `-DGeyser.StrictPacketValidation=true` restores the old kick.
+* **Diagnostics:** `-DGeyser.LogDisconnectCauses=true` logs every Geyser-initiated disconnect with the
+  player name, Bedrock protocol version, the reason and the class that triggered it - the fastest way to
+  answer "why was this player kicked?" from the console.
 
 ### Performance
 

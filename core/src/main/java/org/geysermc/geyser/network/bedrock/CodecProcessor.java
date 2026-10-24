@@ -95,6 +95,8 @@ import org.cloudburstmc.protocol.common.util.VarInts;
 import org.geysermc.geyser.GeyserImpl;
 import org.geysermc.geyser.session.UpstreamSession;
 
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -118,6 +120,41 @@ public class CodecProcessor {
             throw new IllegalPacketException("Client tried to send unused packet " + packet.getClass().getSimpleName() + "!");
         }
     };
+
+    /**
+     * Serializer for packets that Geyser never sends and does not support, but that a client may still
+     * send (EDU-only packets, deprecated features, modified clients). Serializing still fails loudly -
+     * that would be a Geyser bug - but deserializing simply drops the packet instead of kicking the
+     * player, which is what {@link IllegalPacketException} used to do.
+     *
+     * <p>Set {@code -DGeyser.StrictPacketValidation=true} to restore the old behaviour of kicking on
+     * these packets.</p>
+     */
+    @SuppressWarnings("rawtypes")
+    static final BedrockPacketSerializer TOLERANT_SERIALIZER = new BedrockPacketSerializer<>() {
+        @Override
+        public void serialize(ByteBuf buffer, BedrockCodecHelper helper, BedrockPacket packet) {
+            throw new IllegalPacketException("Server tried to send unused packet " + packet.getClass().getSimpleName() + "!");
+        }
+
+        @Override
+        public void deserialize(ByteBuf buffer, BedrockCodecHelper helper, BedrockPacket packet) {
+            if (STRICT_PACKET_VALIDATION) {
+                throw new IllegalPacketException("Client tried to send unused packet " + packet.getClass().getSimpleName() + "!");
+            }
+            if (WARNED_TOLERATED_PACKETS.add(packet.getClass().getSimpleName())) {
+                GeyserImpl.getInstance().getLogger().debug("Ignoring unsupported serverbound "
+                    + packet.getClass().getSimpleName() + " from a client. Further packets of this type are ignored silently.");
+            }
+        }
+    };
+
+    private static final boolean STRICT_PACKET_VALIDATION = Boolean.getBoolean("Geyser.StrictPacketValidation");
+
+    /**
+     * Packets we already warned about, so a chatty client cannot flood the console.
+     */
+    private static final Set<String> WARNED_TOLERATED_PACKETS = ConcurrentHashMap.newKeySet();
 
     /**
      * Generic serializer that does nothing when trying to serialize or deserialize a packet.
@@ -336,26 +373,26 @@ public class CodecProcessor {
     static BedrockCodec processCodec(BedrockCodec codec) {
         BedrockCodec.Builder codecBuilder = codec.toBuilder()
             // Illegal unused serverbound EDU packets
-            .updateSerializer(PhotoTransferPacket.class, ILLEGAL_SERIALIZER)
-            .updateSerializer(LabTablePacket.class, ILLEGAL_SERIALIZER)
-            .updateSerializer(CodeBuilderSourcePacket.class, ILLEGAL_SERIALIZER)
-            .updateSerializer(CreatePhotoPacket.class, ILLEGAL_SERIALIZER)
-            .updateSerializer(NpcRequestPacket.class, ILLEGAL_SERIALIZER)
-            .updateSerializer(PhotoInfoRequestPacket.class, ILLEGAL_SERIALIZER)
+            .updateSerializer(PhotoTransferPacket.class, TOLERANT_SERIALIZER)
+            .updateSerializer(LabTablePacket.class, TOLERANT_SERIALIZER)
+            .updateSerializer(CodeBuilderSourcePacket.class, TOLERANT_SERIALIZER)
+            .updateSerializer(CreatePhotoPacket.class, TOLERANT_SERIALIZER)
+            .updateSerializer(NpcRequestPacket.class, TOLERANT_SERIALIZER)
+            .updateSerializer(PhotoInfoRequestPacket.class, TOLERANT_SERIALIZER)
             // Illegal unused serverbound packets that are deprecated
-            .updateSerializer(ClientCheatAbilityPacket.class, ILLEGAL_SERIALIZER)
-            .updateSerializer(CraftingEventPacket.class, ILLEGAL_SERIALIZER)
+            .updateSerializer(ClientCheatAbilityPacket.class, TOLERANT_SERIALIZER)
+            .updateSerializer(CraftingEventPacket.class, TOLERANT_SERIALIZER)
             // Illegal unusued serverbound packets that relate to unused features
             // Geyser does not use Bedrock's client side chunk caching, but some clients send these
             // anyway. Kicking them only punished the player, so they are ignored now.
             .updateSerializer(ClientCacheBlobStatusPacket.class, IGNORED_SERIALIZER)
-            .updateSerializer(SubClientLoginPacket.class, ILLEGAL_SERIALIZER)
+            .updateSerializer(SubClientLoginPacket.class, TOLERANT_SERIALIZER)
             .updateSerializer(SubChunkRequestPacket.class, IGNORED_SERIALIZER)
-            .updateSerializer(GameTestRequestPacket.class, ILLEGAL_SERIALIZER)
+            .updateSerializer(GameTestRequestPacket.class, TOLERANT_SERIALIZER)
             // Illegal bidirectional packets
-            .updateSerializer(DebugInfoPacket.class, ILLEGAL_SERIALIZER)
-            .updateSerializer(EditorNetworkPacket.class, ILLEGAL_SERIALIZER)
-            .updateSerializer(ScriptMessagePacket.class, ILLEGAL_SERIALIZER)
+            .updateSerializer(DebugInfoPacket.class, TOLERANT_SERIALIZER)
+            .updateSerializer(EditorNetworkPacket.class, TOLERANT_SERIALIZER)
+            .updateSerializer(ScriptMessagePacket.class, TOLERANT_SERIALIZER)
 
             // Ignored serverbound packets
             .updateSerializer(ClientToServerHandshakePacket.class, IGNORED_SERIALIZER)

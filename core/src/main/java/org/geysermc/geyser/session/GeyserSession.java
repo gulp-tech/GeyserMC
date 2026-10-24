@@ -1277,11 +1277,23 @@ public class GeyserSession implements GeyserConnection, GeyserCommandSource, Jav
         }
     }
 
+    /**
+     * When enabled with {@code -DGeyser.LogDisconnectCauses=true}, every Geyser-initiated disconnect is
+     * logged together with the class that caused it. This makes "why was this player kicked?" answerable
+     * from the server console alone.
+     */
+    private static final boolean LOG_DISCONNECT_CAUSES = Boolean.getBoolean("Geyser.LogDisconnectCauses");
+
     private void disconnect0(Component reason) {
         if (closed) {
             return;
         }
         loggedIn = false;
+
+        if (LOG_DISCONNECT_CAUSES) {
+            geyser.getLogger().info("Disconnecting " + bedrockUsername() + " (protocol " + protocolVersion() + "): "
+                + MessageTranslator.convertMessage(reason) + " - triggered by " + findCausingClass());
+        }
 
         SessionDisconnectEvent disconnectEvent = new SessionDisconnectEventImpl(this, reason);
         if (authData != null && clientData != null) { // can occur if player disconnects before Bedrock auth finishes
@@ -1310,6 +1322,19 @@ public class GeyserSession implements GeyserConnection, GeyserCommandSource, Jav
         // The session is removed from the session manager in disconnect(Component)'s finally block.
         // Don't cancel any pending Microsoft auth here - the whole point of PendingMicrosoftAuthentication
         // is to let mobile users disconnect to finish auth in the browser. Task cleans up on timeout.
+    }
+
+    /**
+     * Finds the first class outside of this class in the current stack that initiated the disconnect.
+     */
+    private static String findCausingClass() {
+        for (StackTraceElement element : StackWalker.getInstance().walk(stream -> stream.limit(16).toList())) {
+            String className = element.getClassName();
+            if (!className.equals(GeyserSession.class.getName()) && !className.startsWith("java.")) {
+                return className + "#" + element.getMethodName() + ":" + element.getLineNumber();
+            }
+        }
+        return "unknown";
     }
 
     /**

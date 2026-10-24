@@ -97,8 +97,10 @@ public class CodecProcessorTest {
         Class<?> processedClass = processedSerializer.getClass();
         Class<?> baseClass = baseSerializer.getClass();
 
-        // Illegal / Ignored serializers aren't version-specific and should be ignored
-        if (Objects.equals(CodecProcessor.ILLEGAL_SERIALIZER, processedSerializer) || Objects.equals(CodecProcessor.IGNORED_SERIALIZER, processedSerializer)) {
+        // Illegal / tolerated / ignored serializers aren't version-specific and should be ignored
+        if (Objects.equals(CodecProcessor.ILLEGAL_SERIALIZER, processedSerializer)
+                || Objects.equals(CodecProcessor.TOLERANT_SERIALIZER, processedSerializer)
+                || Objects.equals(CodecProcessor.IGNORED_SERIALIZER, processedSerializer)) {
             return;
         }
 
