@@ -85,6 +85,18 @@ common complaint, caused by a single odd packet or a network hiccup ending the w
   manager and its tick thread is cancelled even if a `SessionDisconnectEvent` listener throws, which
   previously caused "you are already logged in" errors on reconnect.
 * **`GeyserServerInitializer` can no longer throw while reporting an initialisation failure.**
+* **Serverbound movement packets no longer kick.** Clients occasionally send `MovePlayerPacket` /
+  `MoveEntityAbsolutePacket` (vehicles, teleports, knockback) even though movement is server
+  authoritative; Geyser treated those as illegal packets and disconnected the player - a common cause
+  of "kicked when hitting/being hit". They are now dropped (logged once in debug mode).
+* **Bedrock's client-side chunk caching packets** (`SubChunkRequestPacket`, `ClientCacheBlobStatusPacket`)
+  are ignored instead of terminating the session when a client sends them anyway.
+* **Clients on an in-between protocol version are no longer rejected.** Preview/beta builds (e.g. the
+  1.21.110 betas report protocols 835/840/843) and skipped patch versions now fall back to the closest
+  lower codec instead of being kicked with "your client is outdated";
+  `-DGeyser.StrictProtocolVersions=true` restores the strict behaviour.
+* **Kick logs now include the Bedrock protocol version**, so a report from a player can be traced back
+  to the exact client build.
 
 ### Performance
 

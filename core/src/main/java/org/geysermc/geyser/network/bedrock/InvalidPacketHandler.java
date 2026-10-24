@@ -69,25 +69,26 @@ public class InvalidPacketHandler extends ChannelInboundHandlerAdapter {
         Throwable rootCause = rootCause(cause);
 
         GeyserLogger logger = GeyserImpl.getInstance().getLogger();
+        String sessionName = describeSession();
 
         // The session is already gone (a disconnect raced with packets that were still in flight).
         // There is nothing left to kick - just make sure the channel gets cleaned up quietly.
         if (session.isClosed() || !ctx.channel().isActive()) {
-            logger.debug("Ignoring exception on closed session of " + session.bedrockUsername() + ": " + rootCause);
+            logger.debug("Ignoring exception on closed session of " + sessionName + ": " + rootCause);
             ctx.close();
             return;
         }
 
         if (rootCause instanceof IllegalPacketException) {
             // The client explicitly sent a packet it is not allowed to send (e.g. server-auth violations)
-            logger.error("Illegal packet from " + session.bedrockUsername(), cause);
+            logger.error("Illegal packet from " + sessionName, cause);
             closeWithReason("Invalid packet received!");
             return;
         }
 
         if (isNetworkError(rootCause)) {
             // Timeouts, resets and half-closed sockets are not our fault and not worth a scary kick message
-            logger.debug("Network error on session of " + session.bedrockUsername() + ": " + rootCause);
+            logger.debug("Network error on session of " + sessionName + ": " + rootCause);
             closeQuietly();
             return;
         }
@@ -98,7 +99,7 @@ public class InvalidPacketHandler extends ChannelInboundHandlerAdapter {
             // prefixed, so we can drop just this packet instead of kicking the player.
             if (++undecodablePackets <= MAX_UNDECODABLE_PACKETS) {
                 if (logger.isDebug() || undecodablePackets == 1) {
-                    logger.warning("Skipping undecodable packet from " + session.bedrockUsername()
+                    logger.warning("Skipping undecodable packet from " + sessionName
                             + " (" + undecodablePackets + "/" + MAX_UNDECODABLE_PACKETS + "): " + rootCause);
                 }
                 if (logger.isDebug()) {
@@ -107,15 +108,27 @@ public class InvalidPacketHandler extends ChannelInboundHandlerAdapter {
                 return;
             }
 
-            logger.error("Too many undecodable packets from " + session.bedrockUsername() + ", disconnecting", cause);
+            logger.error("Too many undecodable packets from " + sessionName + ", disconnecting", cause);
             closeWithReason("Invalid packet received!");
             return;
         }
 
         // Genuinely unexpected: the session state may be inconsistent, so we still have to end it,
         // but we make sure the disconnect itself cannot throw and leave the channel dangling.
-        logger.error("Exception caught in session of " + session.bedrockUsername(), cause);
+        logger.error("Exception caught in session of " + sessionName, cause);
         closeWithReason("An internal error occurred!");
+    }
+
+    /**
+     * Describes the session in log messages, including the Bedrock protocol version so that a kick can be
+     * traced back to the client build that caused it.
+     */
+    private String describeSession() {
+        try {
+            return session.bedrockUsername() + " (protocol " + session.protocolVersion() + ")";
+        } catch (Throwable ignored) {
+            return session.bedrockUsername();
+        }
     }
 
     private static Throwable rootCause(Throwable cause) {
@@ -157,7 +170,7 @@ public class InvalidPacketHandler extends ChannelInboundHandlerAdapter {
         try {
             session.disconnect(reason);
         } catch (Throwable ex) {
-            GeyserImpl.getInstance().getLogger().debug("Could not send disconnect reason to " + session.bedrockUsername(), ex);
+            GeyserImpl.getInstance().getLogger().debug("Could not send disconnect reason to " + describeSession(), ex);
         } finally {
             closeQuietly();
         }
@@ -169,7 +182,7 @@ public class InvalidPacketHandler extends ChannelInboundHandlerAdapter {
                 session.forciblyCloseUpstream();
             }
         } catch (Throwable ex) {
-            GeyserImpl.getInstance().getLogger().debug("Could not close session of " + session.bedrockUsername(), ex);
+            GeyserImpl.getInstance().getLogger().debug("Could not close session of " + describeSession(), ex);
         }
     }
 }

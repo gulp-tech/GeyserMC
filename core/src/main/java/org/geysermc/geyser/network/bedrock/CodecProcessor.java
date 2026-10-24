@@ -92,7 +92,10 @@ import org.cloudburstmc.protocol.bedrock.packet.SimpleEventPacket;
 import org.cloudburstmc.protocol.bedrock.packet.SubChunkRequestPacket;
 import org.cloudburstmc.protocol.bedrock.packet.SubClientLoginPacket;
 import org.cloudburstmc.protocol.common.util.VarInts;
+import org.geysermc.geyser.GeyserImpl;
 import org.geysermc.geyser.session.UpstreamSession;
+
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Processes the Bedrock codec to remove or modify unused or unsafe packets and fields.
@@ -163,33 +166,56 @@ public class CodecProcessor {
         }
     };
 
+    /**
+     * Movement is server authoritative, so a serverbound {@link MovePlayerPacket} is simply stale data.
+     * This used to throw an {@link IllegalPacketException}, kicking players whenever their client sent a
+     * movement correction (vehicles, teleports, knockback) at the wrong moment. We now drop the packet and
+     * keep the session alive; the authoritative position keeps flowing through the client's PlayerAuthInputPacket.
+     */
     private static final BedrockPacketSerializer<MovePlayerPacket> MOVE_PLAYER_SERIALIZER_V419 = new MovePlayerSerializer_v419() {
         @Override
         public void deserialize(ByteBuf buffer, BedrockCodecHelper helper, MovePlayerPacket packet) {
-            throw new IllegalPacketException("Client cannot send MovePlayerPacket in server-auth movement environment!");
+            logIgnoredMovementPacket("MovePlayerPacket");
         }
     };
 
     private static final BedrockPacketSerializer<MovePlayerPacket> MOVE_PLAYER_SERIALIZER_V2168 = new MovePlayerSerializer_v2168() {
         @Override
         public void deserialize(ByteBuf buffer, BedrockCodecHelper helper, MovePlayerPacket packet) {
-            throw new IllegalPacketException("Client cannot send MovePlayerPacket in server-auth movement environment!");
+            logIgnoredMovementPacket("MovePlayerPacket");
         }
     };
 
+    /**
+     * Same as above for the absolute entity movement packet - the client sometimes echoes this back for
+     * its own body, which used to disconnect the player.
+     */
     private static final BedrockPacketSerializer<MoveEntityAbsolutePacket> MOVE_ENTITY_SERIALIZER_V291 = new MoveEntityAbsoluteSerializer_v291() {
         @Override
         public void deserialize(ByteBuf buffer, BedrockCodecHelper helper, MoveEntityAbsolutePacket packet) {
-            throw new IllegalPacketException("Client cannot send MoveEntityAbsolutePacket in server-auth movement environment!");
+            logIgnoredMovementPacket("MoveEntityAbsolutePacket");
         }
     };
 
     private static final BedrockPacketSerializer<MoveEntityAbsolutePacket> MOVE_ENTITY_SERIALIZER_V975 = new MoveEntityAbsoluteSerializer_v975() {
         @Override
         public void deserialize(ByteBuf buffer, BedrockCodecHelper helper, MoveEntityAbsolutePacket packet) {
-            throw new IllegalPacketException("Client cannot send MoveEntityAbsolutePacket in server-auth movement environment!");
+            logIgnoredMovementPacket("MoveEntityAbsolutePacket");
         }
     };
+
+    private static final AtomicBoolean LOGGED_IGNORED_MOVEMENT_PACKET = new AtomicBoolean(false);
+
+    /**
+     * Logs ignored serverbound movement packets once per server run, so admins can still see that a client
+     * is doing something unusual without flooding the console.
+     */
+    private static void logIgnoredMovementPacket(String packetName) {
+        if (LOGGED_IGNORED_MOVEMENT_PACKET.compareAndSet(false, true)) {
+            GeyserImpl.getInstance().getLogger().debug("Ignoring serverbound " + packetName
+                + " (movement is server authoritative). Further occurrences are not logged.");
+        }
+    }
 
     /**
      * Serializer that does nothing when trying to deserialize BossEventPacket since it is not used from the client.
@@ -320,9 +346,11 @@ public class CodecProcessor {
             .updateSerializer(ClientCheatAbilityPacket.class, ILLEGAL_SERIALIZER)
             .updateSerializer(CraftingEventPacket.class, ILLEGAL_SERIALIZER)
             // Illegal unusued serverbound packets that relate to unused features
-            .updateSerializer(ClientCacheBlobStatusPacket.class, ILLEGAL_SERIALIZER)
+            // Geyser does not use Bedrock's client side chunk caching, but some clients send these
+            // anyway. Kicking them only punished the player, so they are ignored now.
+            .updateSerializer(ClientCacheBlobStatusPacket.class, IGNORED_SERIALIZER)
             .updateSerializer(SubClientLoginPacket.class, ILLEGAL_SERIALIZER)
-            .updateSerializer(SubChunkRequestPacket.class, ILLEGAL_SERIALIZER)
+            .updateSerializer(SubChunkRequestPacket.class, IGNORED_SERIALIZER)
             .updateSerializer(GameTestRequestPacket.class, ILLEGAL_SERIALIZER)
             // Illegal bidirectional packets
             .updateSerializer(DebugInfoPacket.class, ILLEGAL_SERIALIZER)

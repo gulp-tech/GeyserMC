@@ -113,8 +113,30 @@ public class UpstreamPacketHandler extends LoggingPacketHandler {
         return translateAndDefault(packet);
     }
 
+    /**
+     * Whether clients on a protocol version without a dedicated codec should be rejected instead of
+     * being served with the closest lower codec. Off by default; see {@link #setCorrectCodec(int)}.
+     */
+    private static final boolean STRICT_PROTOCOL_VERSIONS = Boolean.getBoolean("Geyser.StrictProtocolVersions");
+
     private boolean setCorrectCodec(int protocolVersion) {
         BedrockCodec packetCodec = GameProtocol.getBedrockCodec(protocolVersion);
+        if (packetCodec == null && !STRICT_PROTOCOL_VERSIONS
+                && protocolVersion >= GameProtocol.MINIMUM_BEDROCK_PROTOCOL
+                && protocolVersion <= GameProtocol.DEFAULT_BEDROCK_PROTOCOL) {
+            // The player is inside our supported range, but their build has no dedicated codec - this happens
+            // with preview/beta builds and with patch versions that re-use an in-between protocol number
+            // (for example the 1.21.110 betas report 835/840/843). Serving them with the closest lower codec
+            // is far friendlier than kicking them with "your client is outdated".
+            int fallbackProtocol = GameProtocol.getClosestSupportedProtocol(protocolVersion);
+            BedrockCodec fallbackCodec = GameProtocol.getBedrockCodec(fallbackProtocol);
+            if (fallbackCodec != null) {
+                GeyserImpl.getInstance().getLogger().info("Bedrock protocol " + protocolVersion
+                    + " has no dedicated codec; using protocol " + fallbackProtocol + " for this session. "
+                    + "Set -DGeyser.StrictProtocolVersions=true to reject such clients instead.");
+                packetCodec = fallbackCodec;
+            }
+        }
         if (packetCodec == null) {
             // None of our Bedrock codecs support this client version, so we can simply compare it to our default protocol.
             // This fork supports ~40 Bedrock version names; Bedrock cuts off long disconnect messages,
