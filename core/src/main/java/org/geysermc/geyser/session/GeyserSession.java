@@ -1328,10 +1328,10 @@ public class GeyserSession implements GeyserConnection, GeyserCommandSource, Jav
      * Finds the first class outside of this class in the current stack that initiated the disconnect.
      */
     private static String findCausingClass() {
-        for (StackTraceElement element : StackWalker.getInstance().walk(stream -> stream.limit(16).toList())) {
-            String className = element.getClassName();
+        for (StackWalker.StackFrame frame : StackWalker.getInstance().walk(stream -> stream.limit(16).toList())) {
+            String className = frame.getClassName();
             if (!className.equals(GeyserSession.class.getName()) && !className.startsWith("java.")) {
-                return className + "#" + element.getMethodName() + ":" + element.getLineNumber();
+                return className + "#" + frame.getMethodName() + ":" + frame.getLineNumber();
             }
         }
         return "unknown";
